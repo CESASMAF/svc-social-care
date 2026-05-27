@@ -2,6 +2,60 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Handbook como Source of Truth (regra #1)
+
+A partir de 2026-05-14, o `handbook/` é a **fonte canônica** de arquitetura,
+decisões e contexto histórico do `social-care`. Este `CLAUDE.md` é apenas
+um índice operacional — quando houver conflito, o handbook prevalece.
+
+**Hierarquia em conflito:**
+
+```
+CLAUDE.md (índice operacional)
+  > handbook/architecture/README.md (visão arquitetural v2.0)
+    > handbook/architecture/DECISIONS/ADR-NNN-*.md (decisões versionadas)
+      > skills (.claude/skills/*) e agents (.claude/agents/*)
+```
+
+**Antes de mexer em algo estrutural, leia (nessa ordem):**
+
+1. `handbook/architecture/README.md` — princípios v2.0 (Inteligência no
+   Domínio, PoP, CQRS, Metadata-Driven, CRU/No Delete).
+2. `handbook/architecture/DECISIONS.md` — índice de ADRs ativos.
+3. ADRs relevantes em `handbook/architecture/DECISIONS/ADR-NNN-*.md`.
+4. `handbook/IMPLEMENTATION_PLAN.md` — gaps abertos (G1-G17) e ordem.
+5. `handbook/architecture/IMPROVEMENT_BACKLOG.md` — propostas em avaliação.
+6. `handbook/features/<feature>.md` — quando tocar uma feature específica.
+
+### Quando criar um ADR
+
+Toda decisão que (a) afeta forma de codar/testar/operar, (b) tem trade-offs
+não-óbvios, (c) é difícil de reverter, ou (d) substitui decisão anterior →
+**ADR obrigatório**. Bug fixes e features de produto **não** viram ADR.
+
+**Fluxo:**
+
+1. Proposta vaga? Adicione em `handbook/architecture/IMPROVEMENT_BACKLOG.md`
+   (formato de proposta com trade-offs).
+2. Decisão fechada? Promova para ADR usando `DECISIONS/ADR-TEMPLATE.md`,
+   incrementa o ID em `DECISIONS.md` e referencia no PR.
+3. Decisão substituída? Atualiza Status do ADR antigo para `Superseded by
+   ADR-XXX` (não deletar — histórico vale).
+
+### Quando atualizar o handbook (não criar ADR)
+
+- Mudança de feature: atualizar `handbook/features/<feature>.md`.
+- Fechamento de gap G1-G17: marcar checkbox em `handbook/IMPLEMENTATION_PLAN.md`.
+- Sessão de trabalho relevante: criar `handbook/reports/SESSION_YYYY_MM_DD.md`.
+- Nova convenção de código: adicionar em `handbook/tooling/swift/<area>/`.
+
+### Quando NÃO usar o handbook
+
+- Comentários de código que explicam *o que* o código faz — vão inline ou
+  no PR description, não no handbook.
+- TODOs ephemeral — usam `TaskCreate` ou issue do GitHub, não o handbook.
+- Discussões de Pull Request — usam comentário do PR.
+
 ## Comandos
 
 ```bash
@@ -71,6 +125,27 @@ Erros são capturados com `do/catch` no handler e mapeados via função `mapErro
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `test:`)
 - **Tags SemVer**: obrigatórias para `feat:` (minor bump) e `fix:` (patch bump) em `main`. Consultar `git tag --sort=-v:refname | head -1` antes de criar nova tag.
 - **Strict concurrency**: Swift 6.2 com todas as checks habilitadas. Todo tipo público que cruza boundary de concorrência deve ser `Sendable`.
+- **ADR obrigatório**: para decisões estruturais (ver "Quando criar um ADR" acima). PR que muda arquitetura sem ADR é bloqueado em review.
+
+## Mapa rápido do handbook
+
+```
+handbook/
+├── architecture/
+│   ├── README.md                       — Arquitetura v2.0 (5 princípios + regras de ouro)
+│   ├── DECISIONS.md                    — Índice de ADRs
+│   ├── DECISIONS/
+│   │   ├── ADR-TEMPLATE.md             — Template para novo ADR
+│   │   └── ADR-NNN-<slug>.md           — ADRs versionados
+│   ├── DOMAIN_EVOLUTION_PLAN.md        — Estado de evolução do Domain
+│   └── IMPROVEMENT_BACKLOG.md          — Propostas em avaliação (pré-ADR)
+├── IMPLEMENTATION_PLAN.md              — Plano mestre + gaps G1-G17
+├── features/<feature>.md               — Specs de feature (ex: PATIENT_LIFECYCLE.md)
+├── front_end_forms/<form>.md           — Forma dos payloads de formulário
+├── Agents/<agent>.md                   — Prompts de agents (implementor, reviewr)
+├── tooling/swift/                      — Refs Swift (API design, CQRS, PoP, swift_doc)
+└── reports/SESSION_YYYY_MM_DD.md       — Snapshots de sessão (histórico)
+```
 
 ## Reference Network — consulta fria (especialistas externos)
 
