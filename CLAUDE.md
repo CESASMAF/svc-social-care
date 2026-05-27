@@ -71,3 +71,18 @@ Erros são capturados com `do/catch` no handler e mapeados via função `mapErro
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `test:`)
 - **Tags SemVer**: obrigatórias para `feat:` (minor bump) e `fix:` (patch bump) em `main`. Consultar `git tag --sort=-v:refname | head -1` antes de criar nova tag.
 - **Strict concurrency**: Swift 6.2 com todas as checks habilitadas. Todo tipo público que cruza boundary de concorrência deve ser `Sendable`.
+
+## Reference Network — consulta fria (especialistas externos)
+
+Para FATOS de documentação de tecnologias (sintaxe, versão exata, comportamento), não responda de memória nem chute: consulte o especialista **EXTERNO read-only**, que cita a doc oficial offline (`infra/reference/`) ou recusa. Divisão: você (interno) conhece o código e **decide**; ele (externo) só entrega o **fato citado** — nunca vê seu código.
+
+Invocação: delegue isolado via `subagent_type: "acdg-ref:ref-<tech>"`, ou direto `/acdg-ref:ref-<tech> <pergunta>`.
+
+| Dúvida sobre… | Consulte |
+|---|---|
+| Vapor: rotas, middleware, Content, async, JWT/JWKS/OIDC (vapor/jwt) | `ref-vapor` |
+| SQL, tipos, funções, GUCs, índices, MVCC (PostgreSQL) | `ref-postgresql` |
+| NATS/JetStream: subjects, consumers, ack, Outbox/at-least-once | `ref-nats` |
+| Authentik: OIDC/OAuth2 provider, flows, claims/scopes | `ref-authentik` |
+
+Regras: passe a pergunta como **texto** (não mande "olhe meu arquivo X" — ele recusa). Se retornar `NÃO ENCONTRADO`, não invente: escale ou peça download da doc. Detalhes: `infra/reference-network/README.md`.
