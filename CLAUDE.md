@@ -92,7 +92,7 @@ docker compose up postgres -d
 
 ## Arquitetura
 
-Microserviço Swift 6.2 / Vapor 4 com Clean Architecture + DDD, CQRS e Transactional Outbox. Código fonte em `Sources/social-care-s/`, testes em `Tests/social-care-sTests/`.
+Microserviço Swift 6.3 / Vapor 4 com Clean Architecture + DDD, CQRS e Transactional Outbox. (Bump 2026-05-14: tools-version 6.2 → 6.3. Swift 6.3.1 fixa stack-allocation em `async let`; Dockerfile já usava `swift:6.3-jammy`.) Código fonte em `Sources/social-care-s/`, testes em `Tests/social-care-sTests/`.
 
 ### Camadas e fluxo de dependência
 
@@ -140,8 +140,9 @@ Erros são capturados com `do/catch` no handler e mapeados via função `mapErro
 - **Branches**: `feat/<slug>`, `fix/<slug>`, `chore/...`
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `test:`)
 - **Tags SemVer**: obrigatórias para `feat:` (minor bump) e `fix:` (patch bump) em `main`. Consultar `git tag --sort=-v:refname | head -1` antes de criar nova tag.
-- **Strict concurrency**: Swift 6.2 com todas as checks habilitadas. Todo tipo público que cruza boundary de concorrência deve ser `Sendable`.
+- **Strict concurrency**: Swift 6.3 com todas as checks habilitadas. Todo tipo público que cruza boundary de concorrência deve ser `Sendable`.
 - **ADR obrigatório**: para decisões estruturais (ver "Quando criar um ADR" acima). PR que muda arquitetura sem ADR é bloqueado em review.
+- **Toolchain local**: fixado em `.swift-version` (atualmente Swift 6.3.2). Use Swiftly — `swiftly install` baixa a versão do `.swift-version` automaticamente ao entrar no diretório.
 
 ## Mapa rápido do handbook
 
