@@ -49,6 +49,14 @@ func configure(_ app: Application) async throws {
         AddUniqueCpfConstraint(),
         AddPatientDischarge(),
         AddWaitlistSupport(),
+        AddPrimaryKeysForFamilyMembersAndDiagnoses(),
+        TypeRelationshipAsUUID(),
+        DeclareLookupFKs(),
+        AuditTrailDistinctId(),
+        FamilyMemberRequiredDocumentsTable(),
+        RestoreJsonbAndTemporalTypes(),
+        AddCreatedUpdatedAtToRootTables(),
+        CreatePatientAssessmentsTable(),
     ]
     for attempt in 1...10 {
         do {
@@ -80,6 +88,7 @@ func configure(_ app: Application) async throws {
     if let natsUrl {
         let patientRepo = SQLKitPatientRepository(db: sqlDb)
         let linkPersonId = LinkPersonIdCommandHandler(patientRepository: patientRepo)
+        let anonymizePII = AnonymizePatientPIICommandHandler(patientRepository: patientRepo)
         let subscriber = NATSEventSubscriber(url: natsUrl)
 
         Task {
@@ -98,6 +107,27 @@ func configure(_ app: Application) async throws {
                     app.logger.error("Failed to process person.registered event: \(error)")
                 }
             }
+
+            // Erasure LGPD (ADR-039): ao receber a eliminação do titular no
+            // people-context, anonimiza a PII direta do Patient correlato
+            // (preserva registro clínico + audit). Idempotente (at-least-once).
+            await subscriber.subscribe(subject: "people.person.deleted") { data in
+                do {
+                    let event = try JSONDecoder().decode(PersonDeletedEvent.self, from: data)
+                    try await anonymizePII.handle(
+                        AnonymizePatientPIICommand(
+                            personId: event.data.personId,
+                            actorId: event.actorId
+                        )
+                    )
+                } catch {
+                    // Sem PII no payload; ainda assim sanitiza por política (ADR-017).
+                    app.logger.error(
+                        "Failed to process person.deleted event: \(LogSanitizer.summary(for: error))"
+                    )
+                }
+            }
+
             await subscriber.start()
         }
     }
@@ -238,9 +268,19 @@ func configure(_ app: Application) async throws {
     }
 
     // MARK: - Middleware
+    //
+    // Ordem (ADR-012): SecurityHeadersMiddleware vem PRIMEIRO para garantir
+    // que toda response — incluindo respostas de erro do AppErrorMiddleware —
+    // recebe headers de defesa em profundidade.
 
+    app.middleware.use(SecurityHeadersMiddleware())
     app.middleware.use(AppErrorMiddleware())
     app.middleware.use(JWTAuthMiddleware())
+
+    // Limite de body (ADR-012): 256 KB cobre os maiores payloads esperados
+    // (RegisterPatientRequest com listas de diagnósticos e benefícios).
+    // Acima disso é vetor potencial de DoS — Vapor rejeita com 413.
+    app.routes.defaultMaxBodySize = "256kb"
 
     // MARK: - Content Configuration
 
