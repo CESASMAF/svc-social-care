@@ -41,7 +41,7 @@ estrutural tem um arquivo dedicado em `DECISIONS/ADR-NNN-<slug>.md`.
 | [023](DECISIONS/ADR-023-created-updated-at-on-root-tables.md) | Auditoria operacional via `created_at`/`updated_at` automáticos em tabelas raiz | Aceito | 2026-05-14 | — |
 | [024](DECISIONS/ADR-024-patient-assessment-aggregate-expand.md) | `PatientAssessment` aggregate — estágio EXPAND da decomposição da Fase 4 | Aceito | 2026-05-14 | — |
 | [025](DECISIONS/ADR-025-patient-assessment-dual-write.md) | `PatientAssessment` — estágio DUAL-WRITE da decomposição da Fase 4 | Aceito | 2026-05-14 | — |
-| [039](DECISIONS/ADR-039-erasure-policy-people-person-deleted.md) | Política de erasure ao consumir `people.person.deleted` (LGPD × No-Delete) | Aceito | 2026-06-09 | — |
+| [039](DECISIONS/ADR-039-erasure-policy-people-person-deleted.md) | Política de erasure ao consumir `people.person.deleted` (LGPD × No-Delete) | Proposto | 2026-06-09 | — |
 
 > IDs **026 a 038** estão **reservados** (planejados em
 > `handbook/reports/REMEDIATION_PIPELINE_2026_05_14.md`, cada um amarrado a um
