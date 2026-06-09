@@ -142,32 +142,6 @@ enum PatientFixture {
         )
     }
 
-    /// Patient com PII direta completa (personalData + civilDocuments + address)
-    /// e registro clínico, para testar erasure LGPD (ADR-039). Eventos de setup
-    /// limpos (version reflete só a criação).
-    static func createWithFullPII(
-        personId: String = defaultPersonId,
-        actorId: String = defaultActorId
-    ) throws -> Patient {
-        var patient = try createWithFemalePR(personId: personId, actorId: actorId)
-        patient.civilDocuments = try CivilDocuments(
-            cpf: try CPF("12345678909"),
-            nis: nil,
-            rgDocument: nil
-        )
-        patient.address = try Address(
-            isShelter: false,
-            residenceLocation: .urbano,
-            street: "Rua das Flores",
-            neighborhood: "Centro",
-            number: "100",
-            state: "RR",
-            city: "Boa Vista"
-        )
-        patient.clearEvents()
-        return patient
-    }
-
     static func createDiagnosis() throws -> Diagnosis {
         try Diagnosis(id: try ICDCode("B201"), date: .now, description: "Test diagnosis", now: .now)
     }

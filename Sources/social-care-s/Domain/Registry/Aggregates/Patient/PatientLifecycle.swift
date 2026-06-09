@@ -226,41 +226,6 @@ extension Patient {
         }
     }
 
-    // MARK: - Erasure (LGPD — ADR-039)
-
-    /// Anonimiza a PII direta do titular ao consumir `people.person.deleted` do
-    /// people-context (erasure LGPD, Art. 18). Remove `personalData`,
-    /// `civilDocuments` e `address`.
-    ///
-    /// A anonimização é a **remoção** dos VOs (campos opcionais → `nil`): os VOs
-    /// não admitem valor "anonimizado parcial" (ex.: `CPF`/`PersonalData` exigem
-    /// valor válido no `init`), então não há placeholder — zerar é a forma correta.
-    ///
-    /// PRESERVA (retenção sob obrigação legal — LGPD Art. 16, I; Art. 11, II.a/d):
-    /// `diagnoses` e assessments (registro clínico), `status`, `id`/`personId`
-    /// (correlação) e o audit trail. `familyMembers` (terceiros) também são
-    /// preservados — sujeitos a erasure próprio se solicitado.
-    ///
-    /// Idempotente: se a PII direta já foi removida, é **no-op** — não registra
-    /// evento nem incrementa `version`. Seguro para entrega NATS at-least-once.
-    ///
-    /// - Note: Não é `delete` (CRU/No-Delete preservado) — o prontuário continua
-    ///   existindo, apenas sem a PII direta do titular.
-    public mutating func anonymizePII(actorId: String, now: TimeStamp = .now) {
-        guard personalData != nil || civilDocuments != nil || address != nil else {
-            return
-        }
-        self.personalData = nil
-        self.civilDocuments = nil
-        self.address = nil
-        self.recordEvent(PatientPIIAnonymizedEvent(
-            patientId: id.description,
-            personId: personId.description,
-            actorId: actorId,
-            occurredAt: now.date
-        ))
-    }
-
     /// Inicializador privado para uso exclusivo em factory e reconstituição.
     private init(
         id: PatientId,
