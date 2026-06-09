@@ -11,35 +11,90 @@ import Testing
 ///
 /// Audit trail (ADR-023) preservado: `sub` continua sendo o actorId.
 /// Claims adicionais: `org_id`, `person_id`, `legacy_sub` (ADR-031).
-@Suite("OIDCJWTPayload — multi-issuer (Authentik + Zitadel legado)")
+/// `.serialized` é obrigatório: vários testes deste suite mutam o singleton
+/// global `OIDCJWTPayloadBootstrap.shared` (defense-in-depth do
+/// `verify(using:)`). Em execução paralela default do swift-testing, dois
+/// testes podem sobrescrever o singleton concorrentemente e provocar
+/// `claimVerificationFailure` aleatório (sintoma: `verifyUsingConsultsGlobalBootstrap`
+/// falhando intermitente com aud/iss de outro teste). Ver T-004.fix /
+/// fix colateral durante T-004.
+@Suite("OIDCJWTPayload — multi-issuer (Authentik + Zitadel legado)", .serialized)
 struct OIDCJWTPayloadTests {
 
     // MARK: - Helpers
 
-    /// Encoder/decoder via JSON round-trip (preserva CodingKeys do Codable).
+    /// `decode(_:)` é usado SOMENTE pelos testes de **mapeamento de claim**
+    /// (derivação de `roleNames`/`orgId`/`personId`/`legacySub` a partir do JSON
+    /// do token), onde o que importa é o `CodingKeys` — não o valor temporal de
+    /// `exp`. Usa `.secondsSince1970` (mesma estratégia do JWTKit interno,
+    /// `CustomizedJSONCoders.swift:47`).
+    ///
+    /// ⚠️ NÃO use `decode(_:)` para asserts sobre `exp`/`nbf`. A decodificação de
+    /// `Date` via `JSONDecoder.dateDecodingStrategy` num container aninhado
+    /// (`JWTUnixEpochClaim`) diverge entre Darwin `Foundation` (macOS) e
+    /// `FoundationEssentials` (Linux/CI): no Linux a estratégia não se aplica e o
+    /// epoch é lido como segundos-desde-2001, deslocando `exp` ~31 anos para o
+    /// futuro (CI vermelho). Testes temporais usam `makePayload(...)` (construção
+    /// determinística) e o caminho real assinar+verificar é coberto por
+    /// `OIDCJWTSigningE2ETests`.
     private func decode(_ json: String) throws -> OIDCJWTPayload {
         let data = Data(json.utf8)
-        return try JSONDecoder().decode(OIDCJWTPayload.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return try decoder.decode(OIDCJWTPayload.self, from: data)
     }
 
     private let expFuture = Int(Date(timeIntervalSinceNow: 3600).timeIntervalSince1970)
-    private let expPast = Int(Date(timeIntervalSinceNow: -3600).timeIntervalSince1970)
+
+    /// Constrói `OIDCJWTPayload` programaticamente: `exp`/`nbf` entram como `Date`
+    /// direto, sem passar pelo `JSONDecoder`. Determinístico em qualquer
+    /// plataforma — usado pelos testes de `verify(...)` (iss/aud/exp/nbf).
+    private func makePayload(
+        sub: String = "a",
+        iss: String = "https://auth.acdgbrasil.com.br",
+        aud: [String] = ["y"],
+        exp: Date = Date(timeIntervalSinceNow: 3600),
+        nbf: Date? = nil,
+        roles: [String]? = nil,
+        groups: [String]? = nil,
+        projectRoles: [String: [String: String]]? = nil,
+        orgId: String? = nil,
+        personId: String? = nil,
+        legacySub: String? = nil
+    ) -> OIDCJWTPayload {
+        OIDCJWTPayload(
+            sub: SubjectClaim(value: sub),
+            exp: ExpirationClaim(value: exp),
+            iss: IssuerClaim(value: iss),
+            aud: AudienceClaim(value: aud),
+            nbf: nbf.map { NotBeforeClaim(value: $0) },
+            roles: roles,
+            groups: groups,
+            projectRoles: projectRoles,
+            orgId: orgId,
+            personId: personId,
+            legacySub: legacySub
+        )
+    }
 
     // MARK: - Authentik shape (default — `groups` claim)
 
     @Test("Authentik default: derive roles do claim 'groups'")
     func authentikGroups() throws {
+        // `groups` no formato REAL emitido pelo people-context #6 (idp-sync.ts):
+        // system="social-care" + role → "social-care:<role>". Ver também a seção
+        // "Contrato people-context #6" abaixo (RBAC end-to-end).
         let json = """
         {
           "sub": "fe025d9c8429d445f0d18e2380c17ec5",
           "iss": "http://authentik:9000/application/o/social-care/",
           "aud": "OBEiWNx12lS0KTDXPmDgcm6AwpmlY4MtiQcpaeLc",
           "exp": \(expFuture),
-          "groups": ["social_worker", "social-care:admin"]
+          "groups": ["social-care:worker", "social-care:admin"]
         }
         """
         let payload = try decode(json)
-        #expect(payload.roleNames == ["social_worker", "social-care:admin"])
+        #expect(payload.roleNames == ["social-care:worker", "social-care:admin"])
         #expect(payload.sub.value == "fe025d9c8429d445f0d18e2380c17ec5")
     }
 
@@ -123,15 +178,10 @@ struct OIDCJWTPayloadTests {
 
     @Test("verify aceita issuer presente na lista OIDC_ISSUERS")
     func verifyAcceptsListedIssuer() async throws {
-        let json = """
-        {
-          "sub": "a",
-          "iss": "http://authentik:9000/application/o/social-care/",
-          "aud": "client-id-x",
-          "exp": \(expFuture)
-        }
-        """
-        let payload = try decode(json)
+        let payload = makePayload(
+            iss: "http://authentik:9000/application/o/social-care/",
+            aud: ["client-id-x"]
+        )
         // Stub multi-issuer + multi-audience
         let validators = OIDCJWTValidators(
             allowedIssuers: [
@@ -145,10 +195,7 @@ struct OIDCJWTPayloadTests {
 
     @Test("verify rejeita issuer fora da lista (JWTError.claimVerificationFailure)")
     func verifyRejectsUnknownIssuer() async throws {
-        let json = """
-        {"sub": "a", "iss": "https://malicious.example.com", "aud": "y", "exp": \(expFuture)}
-        """
-        let payload = try decode(json)
+        let payload = makePayload(iss: "https://malicious.example.com", aud: ["y"])
         let validators = OIDCJWTValidators(
             allowedIssuers: ["https://auth.acdgbrasil.com.br"],
             allowedAudiences: ["y"]
@@ -160,10 +207,7 @@ struct OIDCJWTPayloadTests {
 
     @Test("verify rejeita audience fora da lista")
     func verifyRejectsUnknownAudience() async throws {
-        let json = """
-        {"sub": "a", "iss": "https://auth.acdgbrasil.com.br", "aud": "wrong-aud", "exp": \(expFuture)}
-        """
-        let payload = try decode(json)
+        let payload = makePayload(iss: "https://auth.acdgbrasil.com.br", aud: ["wrong-aud"])
         let validators = OIDCJWTValidators(
             allowedIssuers: ["https://auth.acdgbrasil.com.br"],
             allowedAudiences: ["expected-aud"]
@@ -175,10 +219,13 @@ struct OIDCJWTPayloadTests {
 
     @Test("verify rejeita token expirado")
     func verifyRejectsExpiredToken() async throws {
-        let json = """
-        {"sub": "a", "iss": "https://auth.acdgbrasil.com.br", "aud": "y", "exp": \(expPast)}
-        """
-        let payload = try decode(json)
+        // exp 1h no passado, construído como `Date` (determinístico cross-platform,
+        // sem depender de JSONDecoder.dateDecodingStrategy — ver makePayload).
+        let payload = makePayload(
+            iss: "https://auth.acdgbrasil.com.br",
+            aud: ["y"],
+            exp: Date(timeIntervalSinceNow: -3600)
+        )
         let validators = OIDCJWTValidators(
             allowedIssuers: ["https://auth.acdgbrasil.com.br"],
             allowedAudiences: ["y"]
@@ -192,15 +239,10 @@ struct OIDCJWTPayloadTests {
 
     @Test("verify aceita aud como array com pelo menos um valor da lista")
     func verifyAcceptsAudArrayIntersect() async throws {
-        let json = """
-        {
-          "sub": "a",
-          "iss": "https://auth.acdgbrasil.com.br",
-          "aud": ["aud-1", "aud-2"],
-          "exp": \(expFuture)
-        }
-        """
-        let payload = try decode(json)
+        let payload = makePayload(
+            iss: "https://auth.acdgbrasil.com.br",
+            aud: ["aud-1", "aud-2"]
+        )
         let validators = OIDCJWTValidators(
             allowedIssuers: ["https://auth.acdgbrasil.com.br"],
             allowedAudiences: ["aud-2", "aud-3"]
@@ -241,10 +283,10 @@ struct OIDCJWTPayloadTests {
         ))
         OIDCJWTPayloadBootstrap.shared.set(validators)
 
-        let json = """
-        {"sub":"a","iss":"https://auth.acdgbrasil.com.br","aud":"expected-aud","exp":\(expFuture)}
-        """
-        let payload = try decode(json)
+        let payload = makePayload(
+            iss: "https://auth.acdgbrasil.com.br",
+            aud: ["expected-aud"]
+        )
         try await payload.verify(using: TestAlgorithm())
     }
 
@@ -253,10 +295,7 @@ struct OIDCJWTPayloadTests {
         OIDCJWTPayloadBootstrap.shared.reset()
         defer { OIDCJWTPayloadBootstrap.shared.reset() }
 
-        let json = """
-        {"sub":"a","iss":"https://auth.acdgbrasil.com.br","aud":"y","exp":\(expFuture)}
-        """
-        let payload = try decode(json)
+        let payload = makePayload(iss: "https://auth.acdgbrasil.com.br", aud: ["y"])
         await #expect(throws: JWTError.self) {
             try await payload.verify(using: TestAlgorithm())
         }
@@ -270,10 +309,7 @@ struct OIDCJWTPayloadTests {
             audiencesCsv: "y"
         )))
 
-        let json = """
-        {"sub":"a","iss":"https://malicious.example.com","aud":"y","exp":\(expFuture)}
-        """
-        let payload = try decode(json)
+        let payload = makePayload(iss: "https://malicious.example.com", aud: ["y"])
         await #expect(throws: JWTError.self) {
             try await payload.verify(using: TestAlgorithm())
         }
@@ -283,34 +319,20 @@ struct OIDCJWTPayloadTests {
 
     @Test("verify rejeita token com nbf no futuro")
     func verifyRejectsNbfFuture() async throws {
-        let json = """
-        {"sub":"a","iss":"https://auth.acdgbrasil.com.br","aud":"y",
-         "exp":\(expFuture),"nbf":\(expFuture - 10)}
-        """
-        let payload = try decode(json)
         let validators = try #require(OIDCJWTValidators.fromValues(
             issuersCsv: "https://auth.acdgbrasil.com.br",
             audiencesCsv: "y"
         ))
-        // nbf no passado relativo a expFuture mas pode ser futuro relativo a now
-        // Vou criar caso garantido de nbf futuro:
-        let jsonNbfFuture = """
-        {"sub":"a","iss":"https://auth.acdgbrasil.com.br","aud":"y",
-         "exp":\(expFuture),"nbf":\(Int(Date(timeIntervalSinceNow: 3500).timeIntervalSince1970))}
-        """
-        let payloadNbfFuture = try decode(jsonNbfFuture)
-        await #expect(throws: JWTError.self) {
-            try await payloadNbfFuture.verify(validators: validators)
-        }
-        // Token sem nbf passa
-        let jsonNoNbf = """
-        {"sub":"a","iss":"https://auth.acdgbrasil.com.br","aud":"y","exp":\(expFuture)}
-        """
-        let payloadNoNbf = try decode(jsonNoNbf)
-        try await payloadNoNbf.verify(validators: validators)
 
-        // Suprime warning de "payload nao usado"
-        _ = payload
+        // nbf 30min no futuro → "too soon" (RFC 7519). Date direto: determinístico.
+        let nbfFuture = makePayload(nbf: Date(timeIntervalSinceNow: 1800))
+        await #expect(throws: JWTError.self) {
+            try await nbfFuture.verify(validators: validators)
+        }
+
+        // Token sem nbf passa.
+        let noNbf = makePayload()
+        try await noNbf.verify(validators: validators)
     }
 
     // MARK: - M5: roles vazio NAO faz fallback para groups
@@ -323,6 +345,48 @@ struct OIDCJWTPayloadTests {
         """
         let payload = try decode(json)
         #expect(payload.roleNames.isEmpty)
+    }
+
+    // MARK: - Contrato people-context #6 (RBAC end-to-end)
+    //
+    // Garante o acoplamento cross-service: o people-context (idp-sync.ts) modela
+    // papéis como GRUPOS no formato `<system>:<role>` (ex.: "social-care:worker")
+    // + "superadmin", entregues na claim `groups` do Authentik. O caminho real do
+    // `JWTAuthMiddleware` é: `payload.roleNames` → `AuthenticatedUser(roles:)` →
+    // `RoleGuardMiddleware("worker"/"admin"/...)`. Estes testes provam que os
+    // nomes emitidos lá satisfazem os guards daqui (composite key via `hasRole`).
+
+    @Test("Contrato #6: groups 'social-care:<role>' satisfazem os RoleGuards do social-care")
+    func authentikGroupsSatisfyRoleGuard() throws {
+        let json = """
+        {
+          "sub": "fe025d9c8429d445f0d18e2380c17ec5",
+          "iss": "http://authentik:9000/application/o/social-care/",
+          "aud": "OBEiWNx12lS0KTDXPmDgcm6AwpmlY4MtiQcpaeLc",
+          "exp": \(expFuture),
+          "groups": ["social-care:worker", "social-care:admin"]
+        }
+        """
+        let payload = try decode(json)
+        // Mesmo caminho que o JWTAuthMiddleware monta.
+        let user = AuthenticatedUser(userId: payload.sub.value, roles: payload.roleNames)
+        #expect(user.hasRole("worker"))   // social-care:worker → guard "worker"
+        #expect(user.hasRole("admin"))    // social-care:admin  → guard "admin"
+        #expect(!user.hasRole("owner"))   // não concedido
+    }
+
+    @Test("Contrato #6: group 'superadmin' faz bypass de todos os guards")
+    func superadminGroupBypassesGuards() throws {
+        let json = """
+        {"sub":"a","iss":"http://authentik:9000/application/o/social-care/",
+         "aud":"y","exp":\(expFuture),"groups":["superadmin"]}
+        """
+        let payload = try decode(json)
+        let user = AuthenticatedUser(userId: payload.sub.value, roles: payload.roleNames)
+        #expect(user.isSuperAdmin)
+        #expect(user.hasRole("worker"))
+        #expect(user.hasRole("admin"))
+        #expect(user.hasRole("owner"))
     }
 }
 
