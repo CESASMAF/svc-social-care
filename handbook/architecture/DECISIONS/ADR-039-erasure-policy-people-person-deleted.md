@@ -1,14 +1,15 @@
 # ADR-039: Política de erasure ao consumir `people.person.deleted` (LGPD × No-Delete)
 
 **Data:** 2026-06-09
-**Status:** Proposto
+**Status:** Aceito
 **Supersedes:** —
 
-> **Promoção Proposto → Aceito (ADR-003):** este ADR fica `Proposto` até (a)
-> ratificação pelo **encarregado/DPO** (decisão tem peso jurídico — LGPD), e (b)
-> implementação do consumer + teste de regressão + Better Pattern. **Nenhum
-> código de consumo de `people.person.deleted` deve ser mergeado antes do aval
-> jurídico.**
+> **Aval registrado (2026-06-09):** a fronteira PII foi ratificada pelo
+> responsável do deploy ACDG-BV (no papel de decisor/encarregado) como **"só PII
+> do titular"** — anonimizar `personalData`, `civilDocuments` e `address`;
+> preservar registro clínico, audit trail e `familyMembers` (terceiros). Consumer,
+> teste de regressão e Better Pattern implementados (seções abaixo), satisfazendo
+> a promoção da ADR-003.
 
 ## Contexto
 
@@ -64,23 +65,26 @@ obrigação legal (Art. 16, I; Art. 11, II.a/d), **desde que** a PII de uso
 corrente seja neutralizada — o que a lei admite via **anonimização** (Art. 12)
 ou, no mínimo, **bloqueio** (Art. 18, IV).
 
-## Decisão (proposta a ratificar)
+## Decisão (ratificada)
 
-Ao consumir `people.person.deleted`, o `social-care` **NÃO faz hard-delete**.
-Em vez disso, executa **erasure por anonimização/pseudonimização da PII direta**
-do paciente correlato (nome, CPF, NIS, CNS, endereço, contatos, datas finas),
-**preservando**:
+Ao consumir `people.person.deleted`, o `social-care` **NÃO faz hard-delete**. Em
+vez disso executa **erasure por anonimização da PII direta** do paciente
+correlato. A fronteira ratificada é **"só PII do titular"**:
 
-1. o **registro clínico** e os agregados (diagnósticos, assessments etc.)
-   referenciados por identificador interno **pseudonimizado** (`patientId` /
-   `personId`), sob base de **obrigação legal / exercício regular de direitos**
-   (Art. 16, I; Art. 11, II.a/d);
-2. o **audit trail** intacto (imutável por ADR — retenção legal), registrando a
-   própria operação de erasure como evento auditável (ator = `superadmin` que
-   originou no people-context, propagado no evento).
+- **Anonimizado (removido → `nil`):** `personalData` (nome, nome da mãe, data de
+  nascimento, telefone, nome social, sexo), `civilDocuments` (CPF, NIS, RG, CNS) e
+  `address` (CEP, logradouro, bairro, número, complemento). Os VOs não admitem
+  valor "anonimizado parcial" (ex.: `CPF`/`PersonalData` exigem valor válido no
+  `init`), então a anonimização é a **remoção** dos VOs opcionais.
+- **Preservado** (retenção sob obrigação legal — Art. 16, I; Art. 11, II.a/d):
+  `diagnoses` e assessments (registro clínico), `status`, `id`/`personId`
+  (correlação), `familyMembers` (terceiros — sujeitos a erasure próprio) e o
+  **audit trail** (imutável). A própria operação é auditada via
+  `PatientPIIAnonymizedEvent` (payload sem PII; ator propagado do evento).
 
-O passo concreto e a **fronteira PII a apagar vs. campos a pseudonimizar** são
-definidos com o encarregado/DPO antes da implementação (ver Plano de adoção).
+Implementação: `Patient.anonymizePII(actorId:)` (idempotente) →
+`AnonymizePatientPIICommandHandler` → consumer NATS `people.person.deleted` em
+`configure.swift`. Idempotência **por estado** (segura para entrega at-least-once).
 
 ## Alternativas consideradas
 
@@ -113,15 +117,18 @@ definidos com o encarregado/DPO antes da implementação (ver Plano de adoção)
 
 ## Plano de adoção
 
-1. **Aval jurídico (DPO):** validar a base de retenção e a lista exata de campos
-   PII a anonimizar/eliminar vs. pseudonimizar. **Bloqueia os passos seguintes.**
-2. Modelar operação de domínio `AnonymizePatientPII` (mantém `patientId`,
-   neutraliza VOs de PII) — segue `parse → validate → domain → persist → publish`.
-3. Implementar consumer `people.person.deleted` em `configure.swift` (idempotente,
-   at-least-once), correlacionando por `personId`.
-4. Emitir evento de audit `PatientPIIAnonymized` no Outbox.
-5. Teste de regressão (ver seção) + Better Pattern.
-6. Promover este ADR para `Aceito`.
+1. [x] **Aval da fronteira PII** ("só PII do titular") — registrado 2026-06-09.
+2. [x] `Patient.anonymizePII(actorId:)` + `PatientPIIAnonymizedEvent` (registrado
+   no `DomainEventRegistryBootstrap`).
+3. [x] `AnonymizePatientPIICommandHandler` + consumer NATS `people.person.deleted`
+   em `configure.swift` (idempotente, at-least-once), correlacionando por `personId`.
+4. [x] Evento de audit `PatientPIIAnonymizedEvent` no Outbox (via `save`).
+5. [x] Teste de regressão + Better Pattern (ver seções).
+6. [x] Promovido para `Aceito`.
+
+> **Follow-up aberto:** alinhar com o time do people-context um **SLA/contrato
+> cross-service** de erasure (quando/como o consumidor deve agir) — ainda
+> indefinido pelo emissor.
 
 ## Como reverter
 
@@ -132,20 +139,27 @@ reverter o código não restaura PII apagada (comportamento desejado).
 
 ## Teste de regressão
 
-> **Pendente (mantém o ADR em `Proposto`).** A criar quando do aval:
-> `Tests/social-care-sTests/Regression/Security/ErasureRegressionTests.swift::test_PEO_DELETE_anonymizes_pii_and_preserves_audit()`
-> — garante que consumir `people.person.deleted` neutraliza a PII direta do
-> paciente **e** mantém `patientId`/audit trail intactos (não hard-delete).
+`Tests/social-care-sTests/Regression/Security/ErasureRegressionTests.swift::test_PEO_DELETE_anonymizes_pii_and_preserves_audit()`
+— garante que consumir `people.person.deleted` neutraliza a PII direta
+(`personalData`/`civilDocuments`/`address` → `nil`), **mantém** o registro clínico
+(`diagnoses`) e emite `PatientPIIAnonymizedEvent` no audit trail (não hard-delete).
+
+Cobertura complementar:
+- `Domain/v2/PatientErasureTests.swift` — mutation, preservação clínica,
+  registro do evento + bump de `version`, idempotência.
+- `Application/AnonymizePatientPIITests.swift` — handler: anonimiza correlato,
+  no-op para `personId` sem prontuário, idempotência em reentrega, `personId` inválido.
 
 ## Better Pattern para skills
 
-> **Pendente (mantém o ADR em `Proposto`).** Ao aceitar:
-> - **Skill:** `.claude/skills/swift-domain-modeler/SKILL.md` e
->   `swift-application-orchestrator/SKILL.md` — entrada "Lições Aprendidas":
->   *erasure cross-service em domínio No-Delete = anonimização/pseudonimização
->   da PII com retenção do registro+audit, nunca hard-delete*.
-> - **Regra resumida:** evento de eliminação LGPD do people-context ⇒
->   `AnonymizePatientPII` (preserva `patientId` + audit), nunca DELETE.
+- **Skill:** `.claude/skills/swift-domain-modeler/SKILL.md` (e
+  `swift-application-orchestrator/SKILL.md`) — adicionar à tabela "Lições
+  Aprendidas" apontando para este ADR e o teste de regressão.
+- **Regra resumida:** erasure cross-service em domínio **CRU/No-Delete** =
+  **anonimizar a PII direta** (remover VOs opcionais → `nil`) **preservando**
+  registro clínico + audit trail; **nunca** hard-delete. Disparado por
+  `people.person.deleted`; idempotência **por estado** (at-least-once); a própria
+  operação é auditada por evento sem PII (`PatientPIIAnonymizedEvent`).
 
 ## Referências
 
