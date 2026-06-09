@@ -16,14 +16,15 @@ jobs:
   validate:
     name: Build and tests
     runs-on: ubuntu-22.04
+    # Roda na MESMA imagem do Dockerfile/produção (swift:6.3-jammy). Antes o job
+    # usava setup-swift fixado em 6.2 (resolvia 6.2.1), divergente do repo já em
+    # 6.3 (tools-version, .swift-version 6.3.2, Dockerfile swift:6.3-jammy) — esse
+    # descasamento de toolchain mascarava o comportamento real de produção e
+    # causava "passa local (macOS 6.3) / falha no CI (Linux 6.2.1)".
+    container: swift:6.3-jammy
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2
-        with:
-          swift-version: "6.2"
 
       - name: Show Swift version
         run: swift --version
