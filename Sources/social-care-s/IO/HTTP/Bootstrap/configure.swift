@@ -80,6 +80,7 @@ func configure(_ app: Application) async throws {
     if let natsUrl {
         let patientRepo = SQLKitPatientRepository(db: sqlDb)
         let linkPersonId = LinkPersonIdCommandHandler(patientRepository: patientRepo)
+        let anonymizePII = AnonymizePatientPIICommandHandler(patientRepository: patientRepo)
         let subscriber = NATSEventSubscriber(url: natsUrl)
 
         Task {
@@ -98,6 +99,24 @@ func configure(_ app: Application) async throws {
                     app.logger.error("Failed to process person.registered event: \(error)")
                 }
             }
+
+            // Erasure LGPD (ADR-039): ao receber a eliminação do titular no
+            // people-context, anonimiza a PII direta do Patient correlato
+            // (preserva registro clínico + audit). Idempotente (at-least-once).
+            await subscriber.subscribe(subject: "people.person.deleted") { data in
+                do {
+                    let event = try JSONDecoder().decode(PersonDeletedEvent.self, from: data)
+                    try await anonymizePII.handle(
+                        AnonymizePatientPIICommand(
+                            personId: event.data.personId,
+                            actorId: event.actorId
+                        )
+                    )
+                } catch {
+                    app.logger.error("Failed to process person.deleted event: \(error)")
+                }
+            }
+
             await subscriber.start()
         }
     }
