@@ -3,11 +3,9 @@ import Foundation
 /// Implementação do serviço Maestro para atribuição de cuidador principal.
 public actor AssignPrimaryCaregiverCommandHandler: AssignPrimaryCaregiverUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
     
     public func handle(_ command: AssignPrimaryCaregiverCommand) async throws {
@@ -26,7 +24,6 @@ public actor AssignPrimaryCaregiverCommandHandler: AssignPrimaryCaregiverUseCase
             
             // 4. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
             
         } catch {
             throw mapError(error, patientId: command.patientId)

@@ -104,6 +104,7 @@ struct AuditTrailTests {
 
         let model = AuditTrailModel(
             id: id,
+            outbox_message_id: UUID(),
             aggregate_type: "Patient",
             aggregate_id: aggregateId,
             event_type: "HousingConditionUpdatedEvent",
@@ -127,6 +128,7 @@ struct AuditTrailTests {
     func auditTrailEntryResponseNilActorId() {
         let model = AuditTrailModel(
             id: UUID(),
+            outbox_message_id: UUID(),
             aggregate_type: "Patient",
             aggregate_id: UUID(),
             event_type: "PatientCreatedEvent",

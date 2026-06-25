@@ -3,11 +3,9 @@ import Foundation
 /// Implementação do serviço Maestro para criação de encaminhamentos.
 public actor CreateReferralCommandHandler: CreateReferralUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
     
     public func handle(_ command: CreateReferralCommand) async throws -> String {
@@ -43,7 +41,6 @@ public actor CreateReferralCommandHandler: CreateReferralUseCase {
             
             // 4. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
             
             return referralId.description
             

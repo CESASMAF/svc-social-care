@@ -3,11 +3,9 @@ import Foundation
 /// Implementação do serviço Maestro para registro de atendimentos.
 public actor RegisterAppointmentCommandHandler: RegisterAppointmentUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
     
     public func handle(_ command: RegisterAppointmentCommand) async throws -> String {
@@ -47,7 +45,6 @@ public actor RegisterAppointmentCommandHandler: RegisterAppointmentUseCase {
             
             // 4. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
             
             return appointmentId.description
             

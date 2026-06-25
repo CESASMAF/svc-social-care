@@ -24,7 +24,7 @@ struct JWTAuthMiddleware: AsyncMiddleware {
             // via OIDCJWTPayloadBootstrap (AppSec CRITICAL-1 — defense-in-depth).
             payload = try await request.jwt.verify(as: OIDCJWTPayload.self)
         } catch {
-            request.logger.warning("JWT verify falhou: \(error)")
+            request.logger.warning("JWT verify falhou", metadata: LogSanitizer.metadata(for: error))
             throw Abort(.unauthorized, reason: Self.unauthorizedReason)
         }
 

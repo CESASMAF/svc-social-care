@@ -3,7 +3,12 @@ import Foundation
 extension UpdatePlacementHistoryCommandHandler {
     public func mapError(_ error: Error) -> UpdatePlacementHistoryError {
         if let e = error as? UpdatePlacementHistoryError { return e }
-        
+
+        // ADR-010: PersistenceConflictError universal — fallback preserva detail.
+        if let conflict = error as? PersistenceConflictError {
+            return .persistenceMappingFailure(issues: [String(describing: conflict)])
+        }
+
         if let e = error as? PatientError {
             switch e {
             case .incompatiblePlacementSituation, .incompatibleGuardianshipSituation:

@@ -3,11 +3,9 @@ import Foundation
 /// Implementacao do servico para retirada de pacientes da fila de espera.
 public actor WithdrawFromWaitlistCommandHandler: WithdrawFromWaitlistUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
 
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
 
     public func handle(_ command: WithdrawFromWaitlistCommand) async throws {
@@ -31,7 +29,6 @@ public actor WithdrawFromWaitlistCommandHandler: WithdrawFromWaitlistUseCase {
             try await repository.save(patient)
 
             // 5. Publish events
-            try await eventBus.publish(patient.uncommittedEvents)
 
         } catch {
             throw mapError(error, patientId: command.patientId)

@@ -55,11 +55,10 @@ struct AdmitPatientTests {
     @Test("Deve admitir paciente waitlisted com sucesso")
     func successfulAdmit() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try await Self.seedWaitlistedPatient(repo: repo)
 
         let handler = AdmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         try await handler.handle(Self.makeCommand(
@@ -72,25 +71,24 @@ struct AdmitPatientTests {
         let saveCount = await repo.saveCallCount
         #expect(saveCount == 1)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve publicar PatientAdmittedEvent apos persistencia")
     func eventPublishedAfterPersistence() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try await Self.seedWaitlistedPatient(repo: repo)
 
         let handler = AdmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         try await handler.handle(Self.makeCommand(
             patientId: patient.id.description
         ))
 
-        let lastEvent = await bus.lastEvent()
+        let lastEvent = await repo.publishedEvents.last
         #expect(lastEvent is PatientAdmittedEvent)
     }
 
@@ -99,10 +97,9 @@ struct AdmitPatientTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let handler = AdmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         let nonExistentId = PatientId().description
@@ -113,18 +110,17 @@ struct AdmitPatientTests {
             ))
         }
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount == 0)
     }
 
     @Test("Deve falhar quando paciente ja esta ativo")
     func alreadyActive() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try await Self.seedActivePatient(repo: repo)
 
         let handler = AdmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: AdmitPatientError.self) {
@@ -137,11 +133,10 @@ struct AdmitPatientTests {
     @Test("Deve falhar quando paciente esta desligado")
     func cannotAdmitDischarged() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try await Self.seedDischargedPatient(repo: repo)
 
         let handler = AdmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: AdmitPatientError.self) {
@@ -154,10 +149,9 @@ struct AdmitPatientTests {
     @Test("Deve falhar com formato de patientId invalido")
     func invalidPatientIdFormat() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let handler = AdmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: AdmitPatientError.self) {

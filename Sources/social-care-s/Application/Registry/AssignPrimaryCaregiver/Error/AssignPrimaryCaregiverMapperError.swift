@@ -6,7 +6,12 @@ extension AssignPrimaryCaregiverCommandHandler {
         if let e = error as? AssignPrimaryCaregiverError {
             return e
         }
-        
+
+        // ADR-010: PersistenceConflictError universal — fallback preserva detail.
+        if let conflict = error as? PersistenceConflictError {
+            return .persistenceMappingFailure(issues: [String(describing: conflict)])
+        }
+
         if let e = error as? PatientError {
             switch e {
             case .familyMemberNotFound(let personId):

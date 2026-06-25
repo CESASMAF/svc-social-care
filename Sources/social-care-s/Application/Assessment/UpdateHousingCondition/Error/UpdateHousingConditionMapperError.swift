@@ -6,7 +6,12 @@ extension UpdateHousingConditionCommandHandler {
         if let e = error as? UpdateHousingConditionError {
             return e
         }
-        
+
+        // ADR-010: PersistenceConflictError universal — fallback preserva detail.
+        if let conflict = error as? PersistenceConflictError {
+            return .persistenceMappingFailure(issues: [String(describing: conflict)])
+        }
+
         if let e = error as? HousingConditionError {
             switch e {
             case .negativeRooms: return .negativeRooms

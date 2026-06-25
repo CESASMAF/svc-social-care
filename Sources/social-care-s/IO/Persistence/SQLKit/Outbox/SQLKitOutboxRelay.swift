@@ -62,7 +62,7 @@ public actor SQLKitOutboxRelay: Sendable {
             do {
                 try await pollAndDistribute()
             } catch {
-                logger.error("Outbox relay poll failed", metadata: ["error": "\(error)"])
+                logger.error("Outbox relay poll failed", metadata: LogSanitizer.metadata(for: error))
             }
 
             try? await Task.sleep(for: pollInterval)
@@ -79,7 +79,7 @@ public actor SQLKitOutboxRelay: Sendable {
             do {
                 try await pollAndDistribute()
             } catch {
-                logger.error("Outbox relay poll failed", metadata: ["error": "\(error)"])
+                logger.error("Outbox relay poll failed", metadata: LogSanitizer.metadata(for: error))
             }
 
             try? await Task.sleep(for: pollInterval)
@@ -89,79 +89,113 @@ public actor SQLKitOutboxRelay: Sendable {
     }
     
     private func pollAndDistribute() async throws {
-        // 1. Busca mensagens não processadas
-        let messages = try await db.select()
-            .column("*")
-            .from("outbox_messages")
-            .where("processed_at", .is, SQLLiteral.null)
-            .orderBy("occurred_at", .ascending)
-            .limit(50)
-            .all(decoding: OutboxMessageModel.self)
+        // ADR-013: SELECT FOR UPDATE SKIP LOCKED + processamento + UPDATE
+        // dentro da MESMA transação.
+        //
+        // Pré-ADR-013: dois pollers liam o mesmo lote, publicavam duplicado,
+        // depois faziam UPDATE concorrente. Janela entre publish e UPDATE
+        // permitia re-publicação em crash.
+        //
+        // Pós-ADR-013: FOR UPDATE SKIP LOCKED faz com que cada poller pegue
+        // lote disjunto (locks ignorados pelo SKIP LOCKED). Locks só são
+        // liberados no COMMIT — não há janela entre publish e UPDATE.
+        //
+        // Trade-off: NATS publish dentro da TX segura o lock por ~5s no pior
+        // caso. Aceitável para batch de 50. Se latência NATS crescer,
+        // reduzir batchSize.
 
-        guard !messages.isEmpty else { return }
+        // Snapshot das continuations antes da TX para respeitar actor isolation.
+        let snapshot = self.continuations
+        let publisher = self.natsPublisher
+        let log = self.logger
 
-        var processedIds: [UUID] = []
-        var auditEntries: [AuditTrailModel] = []
-        let now = Date()
+        try await db.transaction { tx in
+            // 1. SELECT FOR UPDATE SKIP LOCKED — pollers paralelos se serializam.
+            let messages = try await tx.raw("""
+                SELECT * FROM outbox_messages
+                WHERE processed_at IS NULL
+                ORDER BY occurred_at ASC
+                FOR UPDATE SKIP LOCKED
+                LIMIT 50
+            """).all(decoding: OutboxMessageModel.self)
 
-        for message in messages {
-            // 2. Tenta decodificar o evento
-            do {
-                let event = try await DomainEventRegistry.shared.decode(
-                    typeName: message.event_type,
-                    data: Data(message.payload.utf8)
-                )
+            guard !messages.isEmpty else { return }
 
-                // 3. Publica no NATS (at-least-once: se falhar, não marca como processed)
-                if let nats = natsPublisher {
-                    try await nats.publish(event, typeName: message.event_type)
-                }
+            var processedIds: [UUID] = []
+            var auditEntries: [AuditTrailModel] = []
+            let now = Date()
 
-                // 4. Distribui para todos os streams ativos (in-process)
-                for continuation in continuations.values {
-                    continuation.yield(event)
-                }
+            for message in messages {
+                do {
+                    // 2. Decode
+                    let event = try await DomainEventRegistry.shared.decode(
+                        typeName: message.event_type,
+                        data: Data(message.payload.utf8)
+                    )
 
-                // 5. Prepara entrada no audit trail
-                let parsed = Self.extractFields(from: message.payload)
-                let aggregateId = parsed.aggregateId ?? message.id
-                auditEntries.append(AuditTrailModel(
-                    id: message.id,
-                    aggregate_type: "Patient",
-                    aggregate_id: aggregateId,
-                    event_type: message.event_type,
-                    actor_id: parsed.actorId,
-                    payload: message.payload,
-                    occurred_at: message.occurred_at,
-                    recorded_at: now
-                ))
+                    // 3. Publish NATS — ADR-013: messageId propagado para Nats-Msg-Id.
+                    // JetStream deduplica re-publicações em janela default (2min).
+                    if let nats = publisher {
+                        try await nats.publish(
+                            event,
+                            typeName: message.event_type,
+                            messageId: message.id
+                        )
+                    }
 
-                processedIds.append(message.id)
-            } catch {
-                logger.warning("Failed to process outbox event", metadata: [
-                    "eventId": "\(message.id)",
-                    "eventType": .string(message.event_type),
-                    "error": "\(error)"
-                ])
-                // Só marca como processed se foi erro de decode (não de NATS)
-                if (error as? DomainEventError) != nil {
+                    // 4. Distribui para streams in-process
+                    for continuation in snapshot.values {
+                        continuation.yield(event)
+                    }
+
+                    // 5. Prepara entrada no audit trail (ADR-015).
+                    // `id` é UUID novo (não reusa message.id) — re-processamento
+                    // adiciona N entries em vez de travar com PK conflict.
+                    // `outbox_message_id` rastreia a origem.
+                    let parsed = Self.extractFields(from: message.payload)
+                    let aggregateId = parsed.aggregateId ?? message.id
+                    auditEntries.append(AuditTrailModel(
+                        id: UUID(),
+                        outbox_message_id: message.id,
+                        aggregate_type: "Patient",
+                        aggregate_id: aggregateId,
+                        event_type: message.event_type,
+                        actor_id: parsed.actorId,
+                        payload: message.payload,
+                        occurred_at: message.occurred_at,
+                        recorded_at: now
+                    ))
+
                     processedIds.append(message.id)
+                } catch {
+                    // ADR-019: NÃO logar payload bruto — preserva PII LGPD.
+                    log.warning("Failed to process outbox event", metadata: [
+                        "eventId": "\(message.id)",
+                        "eventType": .string(message.event_type),
+                        "errorType": .string(String(reflecting: type(of: error)))
+                    ])
+                    // Só marca como processed se foi erro de decode (não de NATS).
+                    // NATS falha → não adiciona ao processedIds → retry próxima poll
+                    // (proteção dupla com Nats-Msg-Id no caminho feliz).
+                    if (error as? DomainEventError) != nil {
+                        processedIds.append(message.id)
+                    }
                 }
-                // Se NATS falhou: não adiciona ao processedIds → retry na próxima poll
             }
-        }
 
-        // 5. Persiste audit trail e marca outbox como processado
-        if !processedIds.isEmpty {
-            let finalAudit = auditEntries
-            let finalIds = processedIds
-            try await db.transaction { tx in
-                for entry in finalAudit {
-                    try await tx.insert(into: "audit_trail").model(entry).run()
+            // 6. Persiste audit trail + marca outbox como processado (mesma TX).
+            // ADR-022: payload é JSONB — bind via SQL raw com cast `::jsonb`
+            // explícito. `.model()` daria erro de tipo.
+            if !processedIds.isEmpty {
+                for entry in auditEntries {
+                    try await tx.raw("""
+                        INSERT INTO audit_trail (id, outbox_message_id, aggregate_type, aggregate_id, event_type, actor_id, payload, occurred_at, recorded_at)
+                        VALUES (\(bind: entry.id), \(bind: entry.outbox_message_id), \(bind: entry.aggregate_type), \(bind: entry.aggregate_id), \(bind: entry.event_type), \(bind: entry.actor_id), \(bind: entry.payload)::jsonb, \(bind: entry.occurred_at), \(bind: entry.recorded_at))
+                    """).run()
                 }
                 try await tx.update("outbox_messages")
                     .set("processed_at", to: now)
-                    .where("id", .in, finalIds)
+                    .where("id", .in, processedIds)
                     .run()
             }
         }

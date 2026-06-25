@@ -8,11 +8,10 @@ struct RemoveFamilyMemberTests {
     @Test("Deve remover membro familiar com sucesso")
     func successfulRemoval() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createWithAdditionalMemberActive()
         await repo.seed(patient)
 
-        let handler = RemoveFamilyMemberCommandHandler(repository: repo, eventBus: bus)
+        let handler = RemoveFamilyMemberCommandHandler(repository: repo)
 
         try await handler.handle(RemoveFamilyMemberCommand(
             patientId: patient.id.description,
@@ -23,18 +22,17 @@ struct RemoveFamilyMemberTests {
         let saved = await repo.stored(byId: patient.id)
         #expect(saved?.familyMembers.count == 1)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar quando membro nao encontrado")
     func memberNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = RemoveFamilyMemberCommandHandler(repository: repo, eventBus: bus)
+        let handler = RemoveFamilyMemberCommandHandler(repository: repo)
 
         await #expect(throws: RemoveFamilyMemberError.self) {
             try await handler.handle(RemoveFamilyMemberCommand(
@@ -48,8 +46,7 @@ struct RemoveFamilyMemberTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = RemoveFamilyMemberCommandHandler(repository: repo, eventBus: bus)
+        let handler = RemoveFamilyMemberCommandHandler(repository: repo)
 
         await #expect(throws: RemoveFamilyMemberError.self) {
             try await handler.handle(RemoveFamilyMemberCommand(

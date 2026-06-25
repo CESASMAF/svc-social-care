@@ -35,9 +35,8 @@ struct RegisterPatientTests {
     @Test("Deve registrar paciente com dados minimos")
     func successfulMinimalRegistration() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let patientId = try await handler.handle(Self.makeCommand())
@@ -47,16 +46,15 @@ struct RegisterPatientTests {
         #expect(patients.count == 1)
         #expect(patients.first?.personId.description == Self.personId)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve registrar paciente com dados pessoais completos")
     func registrationWithPersonalData() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let personalData = RegisterPatientCommand.PersonalDataDraft(
@@ -75,12 +73,11 @@ struct RegisterPatientTests {
     @Test("Deve falhar quando personId ja existe")
     func duplicatePersonId() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimal(personId: Self.personId)
         await repo.seed(patient)
 
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         await #expect(throws: RegisterPatientError.self) {
@@ -91,11 +88,10 @@ struct RegisterPatientTests {
     @Test("Deve falhar com lookup de parentesco invalido")
     func invalidRelationshipLookup() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator()
 
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: lookup
+            repository: repo, lookupValidator: lookup
         )
 
         await #expect(throws: RegisterPatientError.self) {
@@ -106,9 +102,8 @@ struct RegisterPatientTests {
     @Test("Deve falhar com codigo ICD vazio")
     func emptyIcdCode() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         await #expect(throws: RegisterPatientError.self) {
@@ -119,9 +114,8 @@ struct RegisterPatientTests {
     @Test("Deve falhar quando CPF ja existe em outro paciente")
     func duplicateCpf() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let cpf = "12345678909"
@@ -144,9 +138,8 @@ struct RegisterPatientTests {
     @Test("Deve permitir registros sem CPF (CPF eh opcional)")
     func multiplePatientsWithoutCpf() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let pid1 = UUID().uuidString
@@ -162,9 +155,8 @@ struct RegisterPatientTests {
     @Test("Actor isolation: registros concorrentes de pacientes distintos")
     func concurrentRegistrations() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let pid1 = UUID().uuidString

@@ -6,6 +6,10 @@ extension DischargePatientCommandHandler {
     public func mapError(_ error: Error, patientId: String) -> any Error {
         if error is DischargePatientError { return error }
 
+        // ADR-010: PersistenceConflictError universal — propaga sem mascarar
+        // (handler de discharge não tem unique constraint próprio).
+        if error is PersistenceConflictError { return error }
+
         if let e = error as? PatientError {
             switch e {
             case .alreadyDischarged:

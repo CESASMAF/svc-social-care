@@ -3,11 +3,9 @@ import Foundation
 /// Implementação do serviço Maestro para remoção de membros familiares.
 public actor RemoveFamilyMemberCommandHandler: RemoveFamilyMemberUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
     
     public func handle(_ command: RemoveFamilyMemberCommand) async throws {
@@ -26,7 +24,6 @@ public actor RemoveFamilyMemberCommandHandler: RemoveFamilyMemberUseCase {
             
             // 4. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
             
         } catch {
             throw mapError(error, patientId: command.patientId)

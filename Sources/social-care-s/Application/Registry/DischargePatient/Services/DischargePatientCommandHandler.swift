@@ -3,11 +3,9 @@ import Foundation
 /// Implementação do serviço para desligamento de pacientes.
 public actor DischargePatientCommandHandler: DischargePatientUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
 
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
 
     public func handle(_ command: DischargePatientCommand) async throws {
@@ -31,7 +29,6 @@ public actor DischargePatientCommandHandler: DischargePatientUseCase {
             try await repository.save(patient)
 
             // 5. Publish events
-            try await eventBus.publish(patient.uncommittedEvents)
 
         } catch {
             throw mapError(error, patientId: command.patientId)

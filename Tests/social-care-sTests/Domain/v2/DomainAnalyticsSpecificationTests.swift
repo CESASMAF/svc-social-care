@@ -29,25 +29,26 @@ struct DomainAnalyticsSpecificationTests {
             let member1 = PersonId()
             let member2 = PersonId()
             
+            // ADR-009: Money em todo lugar.
             let workIncomes = [
-                WorkIncome(memberId: member1, monthlyAmount: 1200.0),
-                WorkIncome(memberId: member2, monthlyAmount: 800.0)
+                WorkIncome(memberId: member1, monthlyAmount: try Money(valorReal: 1200.0)),
+                WorkIncome(memberId: member2, monthlyAmount: try Money(valorReal: 800.0))
             ]
-            
+
             let benefits = [
-                try SocialBenefit(benefitName: "Bolsa Família", amount: 600.0, beneficiaryId: member1)
+                try SocialBenefit(benefitName: "Bolsa Família", amount: try Money(valorReal: 600.0), beneficiaryId: member1)
             ]
-            
+
             let indicators = FinancialAnalyticsService.calculate(
                 workIncomes: workIncomes,
                 socialBenefits: benefits,
                 memberCount: 4
             )
-            
-            #expect(indicators.totalWorkIncome == 2000.0)
-            #expect(indicators.perCapitaWorkIncome == 500.0)
-            #expect(indicators.totalGlobalIncome == 2600.0)
-            #expect(indicators.perCapitaGlobalIncome == 650.0)
+
+            #expect(indicators.totalWorkIncome == (try Money(valorReal: 2000.0)))
+            #expect(indicators.perCapitaWorkIncome == (try Money(valorReal: 500.0)))
+            #expect(indicators.totalGlobalIncome == (try Money(valorReal: 2600.0)))
+            #expect(indicators.perCapitaGlobalIncome == (try Money(valorReal: 650.0)))
         }
     }
 

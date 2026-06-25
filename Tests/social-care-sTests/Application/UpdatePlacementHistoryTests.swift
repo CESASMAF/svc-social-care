@@ -11,13 +11,12 @@ struct UpdatePlacementHistoryTests {
     @Test("Deve atualizar historico de acolhimento com sucesso")
     func successfulUpdate() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createWithAdditionalMemberActive()
         await repo.seed(patient)
 
         let memberId = PatientFixture.defaultMemberId
 
-        let handler = UpdatePlacementHistoryCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdatePlacementHistoryCommandHandler(repository: repo)
 
         try await handler.handle(UpdatePlacementHistoryCommand(
             patientId: patient.id.description,
@@ -36,18 +35,17 @@ struct UpdatePlacementHistoryTests {
         #expect(saved?.placementHistory != nil)
         #expect(saved?.placementHistory?.individualPlacements.count == 1)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar quando membro nao pertence a familia")
     func memberNotInFamily() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = UpdatePlacementHistoryCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdatePlacementHistoryCommandHandler(repository: repo)
 
         await #expect(throws: UpdatePlacementHistoryError.self) {
             try await handler.handle(UpdatePlacementHistoryCommand(
@@ -64,15 +62,14 @@ struct UpdatePlacementHistoryTests {
             ))
         }
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount == 0)
     }
 
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = UpdatePlacementHistoryCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdatePlacementHistoryCommandHandler(repository: repo)
 
         await #expect(throws: UpdatePlacementHistoryError.self) {
             try await handler.handle(UpdatePlacementHistoryCommand(
@@ -88,11 +85,10 @@ struct UpdatePlacementHistoryTests {
     @Test("Actor isolation: handler serializa operacoes no mesmo actor")
     func actorSerialization() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createWithAdditionalMemberActive()
         await repo.seed(patient)
 
-        let handler = UpdatePlacementHistoryCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdatePlacementHistoryCommandHandler(repository: repo)
         let memberId = PatientFixture.defaultMemberId
 
         // Primeira chamada

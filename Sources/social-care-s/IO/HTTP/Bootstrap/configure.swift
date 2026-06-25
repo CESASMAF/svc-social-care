@@ -1,6 +1,33 @@
+import Foundation
 import Vapor
 import PostgresKit
 import JWT
+
+// MARK: - Secret resolution  (`<KEY>_FILE` → arquivo; senão `<KEY>` → env)
+//
+// POR QUÊ: secrets (a senha do banco) não devem vir de variável de ambiente — env
+// aparece em `docker inspect`, em /proc/<pid>/environ e pode vazar em log. O padrão
+// das imagens oficiais (postgres etc.) é o sufixo `_FILE`: o segredo é montado num
+// arquivo (Docker secrets / OpenBao → /run/secrets) e o app lê DE LÁ. Antes, o
+// compose contornava com um entrypoint-wrapper (`sh -c 'export DB_PASSWORD=$(cat …)'`),
+// que (a) reexpunha o valor no env do processo e (b) não funciona em imagens
+// distroless (sem shell). Lendo aqui, o wrapper foi removido do compose.
+//
+// COMO (importante p/ Linux): usa `FileManager.contents(atPath:)` (leitura via
+// `Data`) e NÃO `String(contentsOfFile:)`. Este último tem bug conhecido no
+// Foundation do Linux — TRAVA (hang) ao ler arquivos "especiais" (FIFO, /proc…).
+// Para /run/secrets (arquivo normal) ambos funcionariam, mas a via-`Data` evita a
+// armadilha. Ref.: https://forums.swift.org/t/is-this-a-bug-linux-string-contentsoffile-hangs-for-special-files/16910
+//
+// Mantém o env como FALLBACK (dev / compatibilidade).
+private func resolveSecret(_ key: String) -> String? {
+    if let path = Environment.get("\(key)_FILE"),
+       let data = FileManager.default.contents(atPath: path),
+       let value = String(data: data, encoding: .utf8) {
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return Environment.get(key)
+}
 
 func configure(_ app: Application) async throws {
     // MARK: - Database
@@ -10,9 +37,9 @@ func configure(_ app: Application) async throws {
     if isProduction {
         guard Environment.get("DB_HOST") != nil,
               Environment.get("DB_USER") != nil,
-              Environment.get("DB_PASSWORD") != nil,
+              resolveSecret("DB_PASSWORD") != nil,   // aceita DB_PASSWORD_FILE (preferido) ou DB_PASSWORD
               Environment.get("DB_NAME") != nil else {
-            fatalError("Required DB_HOST, DB_USER, DB_PASSWORD, DB_NAME environment variables are not set.")
+            fatalError("Required DB_HOST, DB_USER, DB_PASSWORD(_FILE), DB_NAME environment variables are not set.")
         }
     }
 
@@ -20,7 +47,7 @@ func configure(_ app: Application) async throws {
         hostname: Environment.get("DB_HOST") ?? "localhost",
         port: Environment.get("DB_PORT").flatMap(Int.init) ?? 5432,
         username: Environment.get("DB_USER") ?? "postgres",
-        password: Environment.get("DB_PASSWORD") ?? "postgres",
+        password: resolveSecret("DB_PASSWORD") ?? "postgres",   // arquivo (_FILE) → env → default
         database: Environment.get("DB_NAME") ?? "social_care",
         tls: isProduction ? .prefer(try .init(configuration: .clientDefault)) : .disable
     )
@@ -49,6 +76,25 @@ func configure(_ app: Application) async throws {
         AddUniqueCpfConstraint(),
         AddPatientDischarge(),
         AddWaitlistSupport(),
+        // Migrations 2026_05_14_* — ordem por dependência de schema E de dados:
+        //  1. PKs primeiro: cria `patient_diagnoses.id` (destrava RegisterPatient)
+        //     e a PK composta `family_members(patient_id, person_id)`.
+        //  2/3/4 dependem dessa PK composta (FK composta / tipagem de relationship).
+        //  5. cria a função `touch_updated_at()` usada pela trigger da 6.
+        //  6. CreatePatientAssessmentsTable: trigger usa `touch_updated_at()`;
+        //     backfill corrigido (usa colunas normalizadas reais, não as JSONB
+        //     `work_and_income`/`educational_status`/`health_status` que
+        //     NormalizeSchema 03_08 dropou).
+        //  7/8. RestoreJsonbAndTemporalTypes e AuditTrailDistinctId são
+        //     independentes das estruturais — aplicadas por último.
+        AddPrimaryKeysForFamilyMembersAndDiagnoses(),
+        TypeRelationshipAsUUID(),
+        FamilyMemberRequiredDocumentsTable(),
+        DeclareLookupFKs(),
+        AddCreatedUpdatedAtToRootTables(),
+        CreatePatientAssessmentsTable(),
+        RestoreJsonbAndTemporalTypes(),
+        AuditTrailDistinctId(),
     ]
     for attempt in 1...10 {
         do {
@@ -258,6 +304,14 @@ func configure(_ app: Application) async throws {
 
     // MARK: - Middleware
 
+    // Limita o corpo das requisições — payloads grandes são vetor de DoS
+    // (S-C5 / ADR-012). Default Vapor é 16 KB form, sem teto explícito p/ JSON.
+    app.routes.defaultMaxBodySize = "512kb"
+
+    // Headers de defesa em profundidade (HSTS, nosniff, X-Frame-Options,
+    // Referrer-Policy, Cache-Control). Registrado primeiro → fica mais externo,
+    // então as responses de erro (tratadas adiante) também recebem os headers.
+    app.middleware.use(SecurityHeadersMiddleware())
     app.middleware.use(AppErrorMiddleware())
     app.middleware.use(JWTAuthMiddleware())
 

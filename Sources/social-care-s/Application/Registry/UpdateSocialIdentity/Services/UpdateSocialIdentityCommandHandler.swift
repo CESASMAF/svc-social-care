@@ -3,12 +3,10 @@ import Foundation
 public actor UpdateSocialIdentityCommandHandler: UpdateSocialIdentityUseCase {
     private let repository: any PatientRepository
     private let lookupValidator: any LookupValidating
-    private let eventBus: any EventBus
 
-    public init(repository: any PatientRepository, lookupValidator: any LookupValidating, eventBus: any EventBus) {
+    public init(repository: any PatientRepository, lookupValidator: any LookupValidating) {
         self.repository = repository
         self.lookupValidator = lookupValidator
-        self.eventBus = eventBus
     }
 
     public func handle(_ command: UpdateSocialIdentityCommand) async throws {
@@ -31,7 +29,6 @@ public actor UpdateSocialIdentityCommandHandler: UpdateSocialIdentityUseCase {
             try patient.updateSocialIdentity(newIdentity, actorId: command.actorId)
 
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
 
         } catch {
             throw mapError(error, patientId: command.patientId)

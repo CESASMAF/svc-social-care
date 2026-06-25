@@ -8,11 +8,11 @@ public protocol DomainEvent: Sendable {
     var occurredAt: Date { get }
 }
 
-/// Barramento de eventos para propagação de mudanças de estado.
-public protocol EventBus: Sendable {
-    /// Publica uma coleção de eventos de forma assíncrona.
-    func publish(_ events: [any DomainEvent]) async throws
-}
+// `EventBus` foi removido em ADR-014. Eventos são persistidos pelo
+// `PatientRepository.save(_:)` na mesma transação do agregado (Outbox
+// Pattern). Handlers conhecem apenas o repository — não há porta paralela
+// de publicação. O relay (`SQLKitOutboxRelay`) lê a tabela `outbox_messages`
+// e publica via NATS.
 
 // MARK: - CQRS: Commands
 
@@ -54,10 +54,25 @@ public protocol QueryHandling<Q>: Sendable {
 
 // MARK: - Domain Aggregates
 
+/// Mutações controladas para agregados Event-Sourced.
+///
+/// Toda implementação concreta deve apropriar `uncommittedEvents` em
+/// `addEvent` e zerá-lo em `clearEvents`. Faz parte do contrato exigido por
+/// `EventSourcedAggregate` por composição (ADR-004).
+public protocol EventSourcedAggregateInternal {
+    mutating func addEvent(_ event: any DomainEvent)
+    mutating func clearEvents()
+}
+
 /// Define as capacidades de um Agregado que utiliza Event Sourcing/Outbox Pattern.
-public protocol EventSourcedAggregate: Sendable {
+///
+/// Compõe `EventSourcedAggregateInternal` por herança (ADR-004) — agregado
+/// que não implementa `addEvent`/`clearEvents` não compila. Isso elimina a
+/// classe de bug onde `recordEvent` virava no-op silencioso ao falhar no
+/// cast dinâmico para `Internal` (achado S-C7).
+public protocol EventSourcedAggregate: Sendable, EventSourcedAggregateInternal {
     associatedtype ID: Sendable & Equatable
-    
+
     var id: ID { get }
     var version: Int { get }
     var uncommittedEvents: [any DomainEvent] { get }
@@ -65,20 +80,13 @@ public protocol EventSourcedAggregate: Sendable {
 
 // MARK: - Default Implementation (PoP)
 extension EventSourcedAggregate {
-    
-    /// Registra um novo evento e incrementa a versão.
-    public mutating func recordEvent(_ event: any DomainEvent) {
-        if var internalSelf = self as? any EventSourcedAggregateInternal {
-            internalSelf.addEvent(event)
-            // Re-atribuição para garantir que a cópia mutada seja aplicada de volta à struct
-            if let back = internalSelf as? Self {
-                self = back
-            }
-        }
-    }
-}
 
-/// Protocolo interno para permitir mutação controlada via PoP.
-public protocol EventSourcedAggregateInternal {
-    mutating func addEvent(_ event: any DomainEvent)
+    /// Registra um novo evento via `addEvent`.
+    ///
+    /// Versão pós-ADR-004: chamada direta, sem cast dinâmico. A garantia de
+    /// que `addEvent` existe vem do protocolo composto — não há mais "caminho
+    /// silencioso" onde o cast falha.
+    public mutating func recordEvent(_ event: any DomainEvent) {
+        self.addEvent(event)
+    }
 }

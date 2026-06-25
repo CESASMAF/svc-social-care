@@ -3,11 +3,14 @@ import Foundation
 /// Implementação do serviço Maestro para atualização da situação socioeconômica.
 public actor UpdateSocioEconomicSituationCommandHandler: UpdateSocioEconomicSituationUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
-    
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    private let assessmentRepository: any PatientAssessmentRepository
+
+    public init(
+        repository: any PatientRepository,
+        assessmentRepository: any PatientAssessmentRepository
+    ) {
         self.repository = repository
-        self.eventBus = eventBus
+        self.assessmentRepository = assessmentRepository
     }
     
     public func handle(_ command: UpdateSocioEconomicSituationCommand) async throws {
@@ -19,16 +22,18 @@ public actor UpdateSocioEconomicSituationCommandHandler: UpdateSocioEconomicSitu
                 let beneficiaryId = try PersonId(draft.beneficiaryId)
                 return try SocialBenefit(
                     benefitName: draft.benefitName,
-                    amount: draft.amount,
+                    // ADR-009: Double do Command → Money no domínio
+                    amount: try Money(valorReal: draft.amount),
                     beneficiaryId: beneficiaryId
                 )
             }
-            
+
             let collection = try SocialBenefitsCollection(benefits)
-            
+
             let situation = try SocioEconomicSituation(
-                totalFamilyIncome: command.situation.totalFamilyIncome,
-                incomePerCapita: command.situation.incomePerCapita,
+                // ADR-009: Double do Command → Money no domínio
+                totalFamilyIncome: try Money(valorReal: command.situation.totalFamilyIncome),
+                incomePerCapita: try Money(valorReal: command.situation.incomePerCapita),
                 receivesSocialBenefit: command.situation.receivesSocialBenefit,
                 socialBenefits: collection,
                 mainSourceOfIncome: command.situation.mainSourceOfIncome,
@@ -45,8 +50,9 @@ public actor UpdateSocioEconomicSituationCommandHandler: UpdateSocioEconomicSitu
             
             // 4. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
-            
+            // 5. ADR-025 DUAL-WRITE.
+            try await assessmentRepository.dualWriteUpsert(PatientAssessmentBuilder.from(patient))
+
         } catch {
             throw mapError(error, patientId: command.patientId)
         }

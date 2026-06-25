@@ -3,11 +3,9 @@ import Foundation
 /// Implementacao do servico para admissao de pacientes.
 public actor AdmitPatientCommandHandler: AdmitPatientUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
 
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
 
     public func handle(_ command: AdmitPatientCommand) async throws {
@@ -27,7 +25,6 @@ public actor AdmitPatientCommandHandler: AdmitPatientUseCase {
             try await repository.save(patient)
 
             // 5. Publish events
-            try await eventBus.publish(patient.uncommittedEvents)
 
         } catch {
             throw mapError(error, patientId: command.patientId)

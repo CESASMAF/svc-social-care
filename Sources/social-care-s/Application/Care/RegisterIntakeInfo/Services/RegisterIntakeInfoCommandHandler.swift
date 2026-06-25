@@ -2,12 +2,10 @@ import Foundation
 
 public actor RegisterIntakeInfoCommandHandler: RegisterIntakeInfoUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     private let lookupValidator: any LookupValidating
 
-    public init(repository: any PatientRepository, eventBus: any EventBus, lookupValidator: any LookupValidating) {
+    public init(repository: any PatientRepository, lookupValidator: any LookupValidating) {
         self.repository = repository
-        self.eventBus = eventBus
         self.lookupValidator = lookupValidator
     }
 
@@ -55,7 +53,6 @@ public actor RegisterIntakeInfoCommandHandler: RegisterIntakeInfoUseCase {
 
             // 6. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
 
         } catch {
             if let e = error as? RegisterIntakeInfoError { throw e }

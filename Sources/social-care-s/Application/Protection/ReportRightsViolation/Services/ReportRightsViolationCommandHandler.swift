@@ -3,11 +3,9 @@ import Foundation
 /// Implementação do serviço Maestro para relato de violação de direitos.
 public actor ReportRightsViolationCommandHandler: ReportRightsViolationUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
     
     public func handle(_ command: ReportRightsViolationCommand) async throws -> String {
@@ -43,7 +41,6 @@ public actor ReportRightsViolationCommandHandler: ReportRightsViolationUseCase {
             
             // 4. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
             
             return violationReportId.description
             

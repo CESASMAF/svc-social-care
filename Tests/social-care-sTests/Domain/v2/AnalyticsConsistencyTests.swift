@@ -15,8 +15,9 @@ struct AnalyticsConsistencyTests {
     @Test("FinancialAnalytics - Listas vazias")
     func financialEmpty() {
         let indicators = FinancialAnalyticsService.calculate(workIncomes: [], socialBenefits: [], memberCount: 0)
-        #expect(indicators.totalWorkIncome == 0.0)
-        #expect(indicators.perCapitaGlobalIncome == 0.0)
+        // ADR-009: Indicators são Money agora.
+        #expect(indicators.totalWorkIncome == .zero)
+        #expect(indicators.perCapitaGlobalIncome == .zero)
     }
 
     @Test("EducationAnalytics - Sem membros")

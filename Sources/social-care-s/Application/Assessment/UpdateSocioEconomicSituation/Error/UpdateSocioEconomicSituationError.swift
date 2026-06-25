@@ -1,20 +1,25 @@
 import Foundation
 
 /// Erros específicos para o caso de uso de atualização da situação socioeconômica.
+///
+/// ADR-009: valores monetários transitam como `Int64 centavos` quando precisam
+/// ir até o cliente HTTP — o `Money` cuida da exatidão; quando precisamos
+/// expor o valor para diagnóstico, mostramos centavos e o cliente formata.
 public enum UpdateSocioEconomicSituationError: Error, Sendable, Equatable {
     case patientNotFound
     case invalidPersonIdFormat(String)
     case inconsistentSocialBenefit
     case missingSocialBenefits
-    case negativeFamilyIncome(amount: Double)
-    case negativeIncomePerCapita(amount: Double)
     case emptyMainSourceOfIncome
-    case inconsistentIncomePerCapita(perCapita: Double, total: Double)
+    case inconsistentIncomePerCapita(perCapitaCentavos: Int64, totalCentavos: Int64)
     case benefitNameEmpty
-    case amountInvalid(amount: Double)
+    case amountInvalid(centavos: Int64)
     case duplicateBenefitNotAllowed(name: String)
     case persistenceMappingFailure(issues: [String])
     case patientNotActive(reason: String)
+    /// Money rejeitou o valor recebido (ex: currency vazia, formato inválido).
+    /// Mantém detail para diagnóstico do cliente.
+    case invalidMoneyValue(detail: String)
 }
 
 extension UpdateSocioEconomicSituationError: AppErrorConvertible {
@@ -32,18 +37,17 @@ extension UpdateSocioEconomicSituationError: AppErrorConvertible {
             return appFailure("003", kind: "InconsistentSocialBenefit", "Inconsistência nos benefícios sociais informados.", category: .domainRuleViolation, severity: .warning, http: 422)
         case .missingSocialBenefits:
             return appFailure("004", kind: "MissingSocialBenefits", "Benefícios sociais obrigatórios não informados.", category: .domainRuleViolation, severity: .warning, http: 422)
-        case .negativeFamilyIncome(let amount):
-            return appFailure("005", kind: "NegativeFamilyIncome", "Renda familiar total (\(amount)) não pode ser negativa.", category: .domainRuleViolation, severity: .error, http: 422)
-        case .negativeIncomePerCapita(let amount):
-            return appFailure("006", kind: "NegativeIncomePerCapita", "Renda per capita (\(amount)) não pode ser negativa.", category: .domainRuleViolation, severity: .error, http: 422)
+        // SES-005/006 (negative*) eliminados pelo ADR-009 — Money rejeita centavos < 0
         case .emptyMainSourceOfIncome:
             return appFailure("007", kind: "EmptyMainSourceOfIncome", "A principal fonte de renda é obrigatória.", category: .domainRuleViolation, severity: .warning, http: 422)
-        case .inconsistentIncomePerCapita(let perCapita, let total):
-            return appFailure("008", kind: "InconsistentIncomePerCapita", "Renda per capita (\(perCapita)) não pode ser maior que a total (\(total)).", category: .domainRuleViolation, severity: .error, http: 422)
+        case .inconsistentIncomePerCapita(let perCapitaCentavos, let totalCentavos):
+            return appFailure("008", kind: "InconsistentIncomePerCapita", "Renda per capita (\(perCapitaCentavos) centavos) não pode ser maior que a total (\(totalCentavos) centavos).", category: .domainRuleViolation, severity: .error, http: 422)
         case .benefitNameEmpty:
             return appFailure("009", kind: "BenefitNameEmpty", "O nome do benefício social não pode ser vazio.", category: .domainRuleViolation, severity: .warning, http: 422)
-        case .amountInvalid(let amount):
-            return appFailure("010", kind: "AmountInvalid", "Valor de benefício inválido: \(amount).", category: .domainRuleViolation, severity: .warning, http: 422)
+        case .amountInvalid(let centavos):
+            return appFailure("010", kind: "AmountInvalid", "Valor de benefício inválido: \(centavos) centavos.", category: .domainRuleViolation, severity: .warning, http: 422)
+        case .invalidMoneyValue(let detail):
+            return appFailure("014", kind: "InvalidMoneyValue", "Valor monetário inválido: \(detail).", category: .domainRuleViolation, severity: .warning, http: 422)
         case .duplicateBenefitNotAllowed(let name):
             return appFailure("011", kind: "DuplicateBenefitNotAllowed", "Benefício duplicado: \(name).", category: .domainRuleViolation, severity: .warning, http: 422)
         case .patientNotActive(let reason):
