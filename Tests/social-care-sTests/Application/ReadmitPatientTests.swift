@@ -39,11 +39,10 @@ struct ReadmitPatientTests {
     @Test("Deve readmitir paciente desligado com sucesso")
     func successfulReadmit() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try await Self.seedDischargedPatient(repo: repo)
 
         let handler = ReadmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         try await handler.handle(Self.makeCommand(
@@ -61,11 +60,10 @@ struct ReadmitPatientTests {
     @Test("Deve readmitir paciente com notes opcionais")
     func successfulReadmitWithNotes() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try await Self.seedDischargedPatient(repo: repo)
 
         let handler = ReadmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         try await handler.handle(Self.makeCommand(
@@ -80,18 +78,17 @@ struct ReadmitPatientTests {
     @Test("Deve publicar evento PatientReadmittedEvent apos persistencia")
     func eventPublishedAfterPersistence() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try await Self.seedDischargedPatient(repo: repo)
 
         let handler = ReadmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         try await handler.handle(Self.makeCommand(
             patientId: patient.id.description
         ))
 
-        let lastEvent = await bus.lastEvent()
+        let lastEvent = await repo.publishedEvents.last
         #expect(lastEvent is PatientReadmittedEvent)
     }
 
@@ -100,10 +97,9 @@ struct ReadmitPatientTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let handler = ReadmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         let nonExistentId = PatientId().description
@@ -114,19 +110,18 @@ struct ReadmitPatientTests {
             ))
         }
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount == 0)
     }
 
     @Test("Deve falhar quando paciente ja esta ativo")
     func alreadyActive() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = ReadmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: ReadmitPatientError.self) {
@@ -139,10 +134,9 @@ struct ReadmitPatientTests {
     @Test("Deve falhar com formato de patientId invalido")
     func invalidPatientIdFormat() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let handler = ReadmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: ReadmitPatientError.self) {
@@ -155,11 +149,10 @@ struct ReadmitPatientTests {
     @Test("Deve falhar quando notes excede 1000 caracteres")
     func notesExceedMaxLength() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try await Self.seedDischargedPatient(repo: repo)
 
         let handler = ReadmitPatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         let longNotes = String(repeating: "w", count: 1001)

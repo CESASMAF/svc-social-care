@@ -52,8 +52,10 @@ struct PatientController: RouteCollection {
     @Sendable
     private func register(req: Request) async throws -> Response {
         let actorId = try req.extractActorId()
+        // ADR-011 / ADR-023: extrai Bearer do request para forwarding ao people-context.
+        let bearer = req.headers.bearerAuthorization?.token
         let body = try req.content.decode(RegisterPatientRequest.self)
-        let id = try await req.services.registerPatient.handle(body.toCommand(actorId: actorId))
+        let id = try await req.services.registerPatient.handle(body.toCommand(actorId: actorId, bearer: bearer))
         let response = StandardResponse(data: IdResponse(id: id))
         return try await response.encodeResponse(status: .created, for: req)
     }

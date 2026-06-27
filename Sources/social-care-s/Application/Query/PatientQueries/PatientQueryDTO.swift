@@ -59,8 +59,12 @@ public struct HousingConditionDTO: Codable, Sendable {
 }
 
 public struct WorkAndIncomeDTO: Codable, Sendable {
+    /// Total agregado em valor real (ex: `1234.56`). ADR-009: cálculo usa
+    /// soma exata de `Money` (centavos), e só na fronteira HTTP serializa
+    /// como Double para JSON.
     public let totalWorkIncome: Double
-    public init(from data: WorkAndIncome) { 
-        self.totalWorkIncome = data.individualIncomes.reduce(0) { $0 + $1.monthlyAmount }
+    public init(from data: WorkAndIncome) {
+        let totalCentavos = data.individualIncomes.reduce(Int64(0)) { $0 + $1.monthlyAmount.centavos }
+        self.totalWorkIncome = Double(totalCentavos) / 100.0
     }
 }

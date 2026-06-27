@@ -122,15 +122,36 @@ struct PatientModel: Codable {
 struct FamilyMemberModel: Codable {
     let patient_id: UUID
     let person_id: UUID
-    let relationship: String
+    /// FK tipada para `dominio_parentesco(id)` (ADR-007). Antes era `relationship: String`
+    /// aceitando UUID stringificado ou qualquer texto livre — anti-pattern de
+    /// Primitive Obsession + falta de FK declarada.
+    let relationship_id: UUID
     let is_primary_caregiver: Bool
     let resides_with_patient: Bool
     let has_disability: Bool
-    let required_documents: String
     let birth_date: Date
 }
 
+/// Tabela filha 1NF para `family_members.required_documents` (ADR-020).
+///
+/// Pré-fix: array JSON inline em coluna TEXT (`["RG","CPF"]`). Violava 1NF;
+/// `compactMap { RequiredDocument(rawValue:) }` silenciava typo na app e
+/// na leitura.
+///
+/// Pós-fix: cada documento é uma row. PK composta `(patient_id, person_id,
+/// document_code)`; FK composta para `family_members(patient_id, person_id)
+/// ON DELETE CASCADE`; CHECK `document_code IN ('CN','RG','CTPS','CPF','TE')`
+/// no schema (defesa adicional contra SQL direto).
+struct FamilyMemberRequiredDocumentModel: Codable {
+    let patient_id: UUID
+    let person_id: UUID
+    let document_code: String
+}
+
 struct DiagnosisModel: Codable {
+    /// PK surrogate (ADR-006). Gerada pela aplicação em `toDatabase`; o banco
+    /// também tem `DEFAULT gen_random_uuid()` como rede de segurança.
+    let id: UUID
     let patient_id: UUID
     let icd_code: String
     let date: Date
@@ -253,7 +274,12 @@ struct OutboxMessageModel: Codable {
 // MARK: - Audit Trail
 
 struct AuditTrailModel: Codable {
+    /// PK própria — gen_random_uuid no banco como fallback (ADR-015).
+    /// Application popula com UUID() novo a cada entry.
     let id: UUID
+    /// Rastreio para o `outbox_messages.id` que originou esta entry (ADR-015).
+    /// Permite N entries para o mesmo outbox em caso de re-processamento.
+    let outbox_message_id: UUID
     let aggregate_type: String
     let aggregate_id: UUID
     let event_type: String

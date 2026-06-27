@@ -2,11 +2,9 @@ import Foundation
 
 public actor UpdatePlacementHistoryCommandHandler: UpdatePlacementHistoryUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
 
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(repository: any PatientRepository) {
         self.repository = repository
-        self.eventBus = eventBus
     }
 
     public func handle(_ command: UpdatePlacementHistoryCommand) async throws {
@@ -50,7 +48,6 @@ public actor UpdatePlacementHistoryCommandHandler: UpdatePlacementHistoryUseCase
             try patient.updatePlacementHistory(history, actorId: command.actorId)
 
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
 
         } catch {
             throw mapError(error)

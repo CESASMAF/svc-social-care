@@ -8,7 +8,6 @@ struct UpdateHealthStatusTests {
     @Test("Deve atualizar status de saude com sucesso")
     func successfulUpdate() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
@@ -16,7 +15,7 @@ struct UpdateHealthStatusTests {
         let defTypeId = UUID().uuidString
 
         let handler = UpdateHealthStatusCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: AllowAllLookupValidator()
         )
 
         try await handler.handle(UpdateHealthStatusCommand(
@@ -36,20 +35,19 @@ struct UpdateHealthStatusTests {
         #expect(saved?.healthStatus?.deficiencies.count == 1)
         #expect(saved?.healthStatus?.foodInsecurity == true)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar com lookup de tipo de deficiencia invalido")
     func invalidDeficiencyTypeLookup() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = UpdateHealthStatusCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: lookup
+            repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: lookup
         )
 
         await #expect(throws: UpdateHealthStatusError.self) {
@@ -71,9 +69,8 @@ struct UpdateHealthStatusTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = UpdateHealthStatusCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: AllowAllLookupValidator()
         )
 
         await #expect(throws: UpdateHealthStatusError.self) {
@@ -91,9 +88,8 @@ struct UpdateHealthStatusTests {
     @Test("Actor isolation: handler e um actor que serializa acesso")
     func actorSerializesAccess() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = UpdateHealthStatusCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: AllowAllLookupValidator()
         )
 
         let p1 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)

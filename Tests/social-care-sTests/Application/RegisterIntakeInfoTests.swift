@@ -8,7 +8,6 @@ struct RegisterIntakeInfoTests {
     @Test("Deve registrar info de ingresso com sucesso")
     func successfulRegistration() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
@@ -16,7 +15,7 @@ struct RegisterIntakeInfoTests {
         let programId = UUID().uuidString
 
         let handler = RegisterIntakeInfoCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         try await handler.handle(RegisterIntakeInfoCommand(
@@ -36,20 +35,19 @@ struct RegisterIntakeInfoTests {
         #expect(saved?.intakeInfo?.originName == "CRAS Norte")
         #expect(saved?.intakeInfo?.linkedSocialPrograms.count == 1)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar com lookup de tipo de ingresso invalido")
     func invalidIngressTypeLookup() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = RegisterIntakeInfoCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: lookup
+            repository: repo, lookupValidator: lookup
         )
 
         await #expect(throws: RegisterIntakeInfoError.self) {
@@ -68,7 +66,6 @@ struct RegisterIntakeInfoTests {
     @Test("Deve falhar com lookup de programa social invalido")
     func invalidProgramLookup() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
@@ -77,7 +74,7 @@ struct RegisterIntakeInfoTests {
         await lookup.register(id: ingressTypeId, in: "dominio_tipo_ingresso")
 
         let handler = RegisterIntakeInfoCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: lookup
+            repository: repo, lookupValidator: lookup
         )
 
         await #expect(throws: RegisterIntakeInfoError.self) {
@@ -98,9 +95,8 @@ struct RegisterIntakeInfoTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = RegisterIntakeInfoCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         await #expect(throws: RegisterIntakeInfoError.self) {
@@ -119,7 +115,6 @@ struct RegisterIntakeInfoTests {
     @Test("Actor isolation: multiplos handlers concorrentes")
     func concurrentHandlers() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let p1 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         let p2 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
@@ -127,10 +122,10 @@ struct RegisterIntakeInfoTests {
         await repo.seed(p2)
 
         let handler1 = RegisterIntakeInfoCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
         let handler2 = RegisterIntakeInfoCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         async let r1: Void = handler1.handle(RegisterIntakeInfoCommand(

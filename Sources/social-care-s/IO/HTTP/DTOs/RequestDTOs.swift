@@ -91,7 +91,7 @@ struct RegisterPatientRequest: Content {
         let description: String?
     }
 
-    func toCommand(actorId: String) -> RegisterPatientCommand {
+    func toCommand(actorId: String, bearer: String? = nil) -> RegisterPatientCommand {
         RegisterPatientCommand(
             personId: personId,
             initialDiagnoses: initialDiagnoses.map {
@@ -122,7 +122,9 @@ struct RegisterPatientRequest: Content {
                 .init(typeId: $0.typeId, description: $0.description)
             },
             prRelationshipId: prRelationshipId,
-            actorId: actorId
+            actorId: actorId,
+            // ADR-011 / ADR-023: bearer propagado para validator outbound.
+            bearer: bearer
         )
     }
 }

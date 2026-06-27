@@ -12,6 +12,11 @@ public enum AddFamilyMemberError: Error, Sendable, Equatable {
     case memberAlreadyExists(String)
     case invalidLookupId(table: String, id: String)
     case patientNotActive(reason: String)
+    /// ADR-020 (S-H-A7): valor recebido em `requiredDocuments` não corresponde
+    /// a nenhum case de `RequiredDocument`. Pré-fix, o handler usava
+    /// `compactMap` e silenciosamente descartava o valor — agora é erro tipado
+    /// (HTTP 422 com payload `{"invalidValue": "..."}`).
+    case invalidRequiredDocument(String)
 }
 
 extension AddFamilyMemberError: AppErrorConvertible {
@@ -107,6 +112,16 @@ extension AddFamilyMemberError: AppErrorConvertible {
                 category: .dataConsistencyIncident,
                 severity: .error,
                 http: 400
+            )
+        case .invalidRequiredDocument(let value):
+            return appFailure(
+                "011",
+                kind: "InvalidRequiredDocument",
+                "Documento solicitado inválido: '\(value)'. Valores aceitos: CN, RG, CTPS, CPF, TE.",
+                category: .domainRuleViolation,
+                severity: .warning,
+                http: 422,
+                context: ["invalidValue": value]
             )
         }
     }

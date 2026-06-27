@@ -2,11 +2,14 @@ import Foundation
 
 public actor UpdateSocialHealthSummaryCommandHandler: UpdateSocialHealthSummaryUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
+    private let assessmentRepository: any PatientAssessmentRepository
 
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    public init(
+        repository: any PatientRepository,
+        assessmentRepository: any PatientAssessmentRepository
+    ) {
         self.repository = repository
-        self.eventBus = eventBus
+        self.assessmentRepository = assessmentRepository
     }
 
     public func handle(_ command: UpdateSocialHealthSummaryCommand) async throws {
@@ -27,7 +30,8 @@ public actor UpdateSocialHealthSummaryCommandHandler: UpdateSocialHealthSummaryU
             try patient.updateSocialHealthSummary(summary, actorId: command.actorId)
 
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
+            // ADR-025 DUAL-WRITE.
+            try await assessmentRepository.dualWriteUpsert(PatientAssessmentBuilder.from(patient))
         } catch {
             throw mapError(error)
         }

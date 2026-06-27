@@ -15,6 +15,23 @@ public struct PatientCreatedEvent: DomainEvent, Codable {
     }
 }
 
+/// Erasure LGPD (ADR-039): a PII direta do titular (`personalData`,
+/// `civilDocuments`, `address`) foi anonimizada (removida) ao consumir
+/// `people.person.deleted`. O registro clínico e o audit trail são preservados.
+/// Payload mínimo e SEM PII (apenas identificadores de correlação).
+public struct PatientPIIAnonymizedEvent: DomainEvent, Codable {
+    public let id: UUID
+    public let patientId: String
+    public let personId: String
+    public let actorId: String
+    public let occurredAt: Date
+
+    public init(patientId: String, personId: String, actorId: String, occurredAt: Date) {
+        self.id = UUID(); self.patientId = patientId; self.personId = personId
+        self.actorId = actorId; self.occurredAt = occurredAt
+    }
+}
+
 // MARK: - Family Events
 
 public struct FamilyMemberAddedEvent: DomainEvent, Codable {

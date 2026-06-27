@@ -8,6 +8,9 @@ public enum RegisterPatientError: Error, Sendable, Equatable {
     case cpfAlreadyExists(String)
     case invalidPersonIdFormat(String)
     case personIdNotFoundInPeopleContext(String)
+    /// People-context indisponível (timeout, 5xx, DNS, 401). ADR-011 fail-secure:
+    /// bloqueia registro com HTTP 503 — operador retenta. NÃO passa silencioso.
+    case personValidationUnavailable(reason: String)
     // Diagnósticos
     case invalidIcdCode(String)
     case invalidDiagnosisDate(date: String, now: String)
@@ -56,6 +59,9 @@ extension RegisterPatientError: AppErrorConvertible {
             return appFailure("002", kind: "InvalidPersonIdFormat", "ID de pessoa inválido: \(value)", category: .dataConsistencyIncident, severity: .error, http: 400)
         case .personIdNotFoundInPeopleContext(let value):
             return appFailure("029", kind: "PersonIdNotFoundInPeopleContext", "PersonId \(value) não encontrado no people-context. Registre a pessoa antes de criar o prontuário.", category: .domainRuleViolation, severity: .warning, http: 422)
+        case .personValidationUnavailable(let reason):
+            // ADR-011 fail-secure: HTTP 503 sinaliza ao cliente que precisa retentar.
+            return appFailure("031", kind: "PersonValidationUnavailable", "Validação de pessoa no people-context indisponível (\(reason)). Tente novamente em alguns instantes.", category: .infrastructureDependencyFailure, severity: .error, http: 503)
         case .invalidIcdCode(let value):
             return appFailure("003", kind: "InvalidIcdCode", "Código CID inválido: \(value)", category: .domainRuleViolation, severity: .error, http: 400)
         case .invalidDiagnosisDate(let date, let now):

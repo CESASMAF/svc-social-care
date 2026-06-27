@@ -3,7 +3,8 @@ import Foundation
 /// Erros específicos para o Value Object SocialBenefit.
 public enum SocialBenefitError: Error, Sendable, Equatable {
     case benefitNameEmpty
-    case amountInvalid(amount: Double)
+    /// Valor monetário não-positivo. Centavos como Int64 (Money internal).
+    case amountInvalid(centavos: Int64)
 }
 
 extension SocialBenefitError: AppErrorConvertible {
@@ -22,13 +23,13 @@ extension SocialBenefitError: AppErrorConvertible {
                 observability: .init(category: .domainRuleViolation, severity: .warning, fingerprint: ["\(Self.codePrefix)-001"], tags: ["vo": "social_benefit"]),
                 http: 422
             )
-        case .amountInvalid(let amount):
+        case .amountInvalid(let centavos):
             return AppError(
                 code: "\(Self.codePrefix)-002",
-                message: "O valor do benefício (\(amount)) deve ser maior que zero.",
+                message: "O valor do benefício (\(centavos) centavos) deve ser maior que zero.",
                 bc: Self.bc, module: Self.module, kind: "AmountInvalid",
-                context: ["amount": AnySendable(amount)],
-                safeContext: ["amount": AnySendable(amount)],
+                context: ["centavos": AnySendable(centavos)],
+                safeContext: ["centavos": AnySendable(centavos)],
                 observability: .init(category: .domainRuleViolation, severity: .warning, fingerprint: ["\(Self.codePrefix)-002"], tags: ["vo": "social_benefit"]),
                 http: 422
             )

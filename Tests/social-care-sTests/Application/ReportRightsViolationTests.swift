@@ -8,11 +8,10 @@ struct ReportRightsViolationTests {
     @Test("Deve registrar violacao de direitos com sucesso")
     func successfulReport() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = ReportRightsViolationCommandHandler(repository: repo, eventBus: bus)
+        let handler = ReportRightsViolationCommandHandler(repository: repo)
 
         let reportId = try await handler.handle(ReportRightsViolationCommand(
             patientId: patient.id.description,
@@ -27,18 +26,17 @@ struct ReportRightsViolationTests {
         let saved = try await repo.find(byPersonId: PersonId(PatientFixture.defaultPersonId))
         #expect(saved?.violationReports.count == 1)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar com tipo de violacao invalido")
     func invalidViolationType() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = ReportRightsViolationCommandHandler(repository: repo, eventBus: bus)
+        let handler = ReportRightsViolationCommandHandler(repository: repo)
 
         await #expect(throws: ReportRightsViolationError.self) {
             try await handler.handle(ReportRightsViolationCommand(
@@ -54,8 +52,7 @@ struct ReportRightsViolationTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = ReportRightsViolationCommandHandler(repository: repo, eventBus: bus)
+        let handler = ReportRightsViolationCommandHandler(repository: repo)
 
         await #expect(throws: ReportRightsViolationError.self) {
             try await handler.handle(ReportRightsViolationCommand(
@@ -71,14 +68,13 @@ struct ReportRightsViolationTests {
     @Test("Actor isolation: relatos concorrentes em pacientes distintos")
     func concurrentReports() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let p1 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         let p2 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         await repo.seed(p1)
         await repo.seed(p2)
 
-        let handler = ReportRightsViolationCommandHandler(repository: repo, eventBus: bus)
+        let handler = ReportRightsViolationCommandHandler(repository: repo)
 
         async let r1 = handler.handle(ReportRightsViolationCommand(
             patientId: p1.id.description,

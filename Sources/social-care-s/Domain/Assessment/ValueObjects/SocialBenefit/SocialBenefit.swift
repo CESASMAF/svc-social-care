@@ -9,10 +9,10 @@ public struct SocialBenefit: Codable, Equatable, Hashable, Sendable {
     
     /// O nome descritivo do benefício (ex: "Bolsa Família").
     public let benefitName: String
-    
-    /// O valor monetário atual do benefício.
-    public let amount: Double
-    
+
+    /// O valor monetário atual do benefício (ADR-009 — Money substitui Double).
+    public let amount: Money
+
     /// O identificador único do membro da família que recebe o auxílio.
     public let beneficiaryId: PersonId
 
@@ -20,10 +20,11 @@ public struct SocialBenefit: Codable, Equatable, Hashable, Sendable {
 
     /// Inicializa uma instância validada de benefício social.
     ///
-    /// - Throws: `SocialBenefitError` se o nome estiver vazio ou o valor for inválido.
+    /// - Throws: `SocialBenefitError.benefitNameEmpty` se o nome estiver vazio,
+    ///   ou `SocialBenefitError.amountInvalid` se o valor for não-positivo.
     public init(
         benefitName: String,
-        amount: Double,
+        amount: Money,
         beneficiaryId: PersonId
     ) throws {
         let normalizedName = benefitName
@@ -34,8 +35,9 @@ public struct SocialBenefit: Codable, Equatable, Hashable, Sendable {
             throw SocialBenefitError.benefitNameEmpty
         }
 
-        guard amount > 0 else {
-            throw SocialBenefitError.amountInvalid(amount: amount)
+        // Money já garante centavos >= 0; aqui validamos > 0 (benefício deve ter valor).
+        guard amount.centavos > 0 else {
+            throw SocialBenefitError.amountInvalid(centavos: amount.centavos)
         }
 
         self.benefitName = normalizedName

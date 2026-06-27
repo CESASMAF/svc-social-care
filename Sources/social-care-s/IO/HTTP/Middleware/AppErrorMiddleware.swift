@@ -37,7 +37,7 @@ struct AppErrorMiddleware: AsyncMiddleware {
                 request: request
             )
         } catch {
-            request.logger.error("Unhandled error: \(error)")
+            request.logger.error("Unhandled error", metadata: LogSanitizer.metadata(for: error))
             return makeResponse(
                 status: .internalServerError,
                 code: "SYS-500",

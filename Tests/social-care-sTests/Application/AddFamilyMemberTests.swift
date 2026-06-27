@@ -10,12 +10,11 @@ struct AddFamilyMemberTests {
     @Test("Deve adicionar membro familiar com sucesso")
     func successfulAddition() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = AddFamilyMemberCommandHandler(
-            patientRepository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            patientRepository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let prRelId = patient.familyMembers.first!.relationshipId.description
@@ -36,19 +35,18 @@ struct AddFamilyMemberTests {
         let saved = try await repo.find(byPersonId: PersonId(PatientFixture.defaultPersonId))
         #expect(saved?.familyMembers.count == 2)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar quando membro ja existe na familia")
     func duplicateMember() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = AddFamilyMemberCommandHandler(
-            patientRepository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            patientRepository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let prRelId = patient.familyMembers.first!.relationshipId.description
@@ -72,9 +70,8 @@ struct AddFamilyMemberTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = AddFamilyMemberCommandHandler(
-            patientRepository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            patientRepository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         await #expect(throws: AddFamilyMemberError.self) {
@@ -96,12 +93,11 @@ struct AddFamilyMemberTests {
     @Test("Deve falhar quando paciente esta na lista de espera")
     func patientIsWaitlisted() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalWaitlisted()
         await repo.seed(patient)
 
         let handler = AddFamilyMemberCommandHandler(
-            patientRepository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            patientRepository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let prRelId = patient.familyMembers.first!.relationshipId.description
@@ -125,13 +121,12 @@ struct AddFamilyMemberTests {
     @Test("Deve falhar com lookup de parentesco invalido")
     func invalidRelationshipLookup() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = AddFamilyMemberCommandHandler(
-            patientRepository: repo, eventBus: bus, lookupValidator: lookup
+            patientRepository: repo, lookupValidator: lookup
         )
 
         await #expect(throws: AddFamilyMemberError.self) {

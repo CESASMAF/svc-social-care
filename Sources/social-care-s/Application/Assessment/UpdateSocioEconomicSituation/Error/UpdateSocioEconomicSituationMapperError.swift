@@ -6,23 +6,34 @@ extension UpdateSocioEconomicSituationCommandHandler {
         if let e = error as? UpdateSocioEconomicSituationError {
             return e
         }
-        
+
+        // ADR-010: PersistenceConflictError universal — fallback preserva detail.
+        if let conflict = error as? PersistenceConflictError {
+            return .persistenceMappingFailure(issues: [String(describing: conflict)])
+        }
+
         if let e = error as? SocioEconomicSituationError {
             switch e {
             case .inconsistentSocialBenefit: return .inconsistentSocialBenefit
             case .missingSocialBenefits: return .missingSocialBenefits
-            case .negativeFamilyIncome(let amount): return .negativeFamilyIncome(amount: amount)
-            case .negativeIncomePerCapita(let amount): return .negativeIncomePerCapita(amount: amount)
+            // ADR-009: negativeFamilyIncome/negativeIncomePerCapita eliminados (Money valida).
             case .emptyMainSourceOfIncome: return .emptyMainSourceOfIncome
-            case .inconsistentIncomePerCapita(let perCapita, let total): return .inconsistentIncomePerCapita(perCapita: perCapita, total: total)
+            case .inconsistentIncomePerCapita(let perCapitaCentavos, let totalCentavos):
+                return .inconsistentIncomePerCapita(perCapitaCentavos: perCapitaCentavos, totalCentavos: totalCentavos)
             }
         }
-        
+
         if let e = error as? SocialBenefitError {
             switch e {
             case .benefitNameEmpty: return .benefitNameEmpty
-            case .amountInvalid(let amount): return .amountInvalid(amount: amount)
+            case .amountInvalid(let centavos): return .amountInvalid(centavos: centavos)
             }
+        }
+
+        // ADR-009: Money pode lançar ao construir a partir do Command (currency
+        // inválida do DTO, ou valorReal que arredonda para negativo).
+        if let e = error as? MoneyError {
+            return .invalidMoneyValue(detail: String(describing: e))
         }
         
         if let e = error as? SocialBenefitsCollectionError {

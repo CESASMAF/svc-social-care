@@ -6,7 +6,21 @@ extension AddFamilyMemberCommandHandler {
         if let e = error as? AddFamilyMemberError {
             return e
         }
-        
+
+        // ADR-010: PersistenceConflictError tratado universalmente.
+        // family_members_pkey (PK composta após ADR-006) → memberAlreadyExists.
+        if let conflict = error as? PersistenceConflictError {
+            if let mapped: AddFamilyMemberError = conflict.mapUniqueViolation({ constraint in
+                switch constraint {
+                case "family_members_pkey": return .memberAlreadyExists("(unknown)")
+                default: return nil
+                }
+            }) {
+                return mapped
+            }
+            return .persistenceMappingFailure(patientId: patientId, issues: [String(describing: conflict)], issueCount: 1)
+        }
+
         if error is PatientIdError {
             return .invalidPersonIdFormat
         }

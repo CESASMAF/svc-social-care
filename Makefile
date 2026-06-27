@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run deps build build-release dev test coverage coverage-report ci clean
+.PHONY: help run deps build build-release dev test regression coverage coverage-report ci clean
 
 help: ## Lista os comandos disponíveis
 	@echo "Uso:"
@@ -29,6 +29,9 @@ dev: ## Executa o serviço localmente
 
 test: ## Executa os testes
 	swift test
+
+regression: ## Executa apenas o suite de regressão (alvo < 5s; ADR-002)
+	swift test --filter "Regression"
 
 coverage: ## Executa testes + gate de cobertura (30%)
 	./scripts/check_coverage.sh 30

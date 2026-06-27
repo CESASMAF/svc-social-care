@@ -8,12 +8,11 @@ struct UpdateSocialIdentityTests {
     @Test("Deve atualizar identidade social com sucesso")
     func successfulUpdate() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = UpdateSocialIdentityCommandHandler(
-            repository: repo, lookupValidator: AllowAllLookupValidator(), eventBus: bus
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         let typeId = UUID().uuidString
@@ -29,20 +28,19 @@ struct UpdateSocialIdentityTests {
         #expect(saved?.socialIdentity != nil)
         #expect(saved?.socialIdentity?.typeId.description == typeId.lowercased())
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar com lookup de tipo de identidade invalido")
     func invalidLookup() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = UpdateSocialIdentityCommandHandler(
-            repository: repo, lookupValidator: lookup, eventBus: bus
+            repository: repo, lookupValidator: lookup
         )
 
         await #expect(throws: UpdateSocialIdentityError.self) {
@@ -58,9 +56,8 @@ struct UpdateSocialIdentityTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = UpdateSocialIdentityCommandHandler(
-            repository: repo, lookupValidator: AllowAllLookupValidator(), eventBus: bus
+            repository: repo, lookupValidator: AllowAllLookupValidator()
         )
 
         await #expect(throws: UpdateSocialIdentityError.self) {

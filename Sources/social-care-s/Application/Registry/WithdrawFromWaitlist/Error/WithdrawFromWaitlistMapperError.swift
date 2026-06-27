@@ -5,6 +5,8 @@ extension WithdrawFromWaitlistCommandHandler {
     /// Erros não reconhecidos são propagados sem mascaramento.
     public func mapError(_ error: Error, patientId: String) -> any Error {
         if error is WithdrawFromWaitlistError { return error }
+        // ADR-010: PersistenceConflictError propagado sem mascarar (handler lifecycle).
+        if error is PersistenceConflictError { return error }
 
         if let e = error as? PatientError {
             switch e {

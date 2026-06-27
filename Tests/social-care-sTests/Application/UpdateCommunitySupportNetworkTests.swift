@@ -8,11 +8,10 @@ struct UpdateCommunitySupportNetworkTests {
     @Test("Deve atualizar rede de apoio comunitario com sucesso")
     func successfulUpdate() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = UpdateCommunitySupportNetworkCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateCommunitySupportNetworkCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         try await handler.handle(UpdateCommunitySupportNetworkCommand(
             patientId: patient.id.description,
@@ -31,7 +30,7 @@ struct UpdateCommunitySupportNetworkTests {
         #expect(saved?.communitySupportNetwork?.patientParticipatesInGroups == true)
         #expect(saved?.communitySupportNetwork?.facesDiscrimination == false)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
         let saveCount = await repo.saveCallCount
         #expect(saveCount == 1)
@@ -40,8 +39,7 @@ struct UpdateCommunitySupportNetworkTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = UpdateCommunitySupportNetworkCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateCommunitySupportNetworkCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         await #expect(throws: UpdateCommunitySupportNetworkError.self) {
             try await handler.handle(UpdateCommunitySupportNetworkCommand(
@@ -57,15 +55,14 @@ struct UpdateCommunitySupportNetworkTests {
             ))
         }
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount == 0)
     }
 
     @Test("Deve falhar com patientId invalido")
     func invalidPatientId() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = UpdateCommunitySupportNetworkCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateCommunitySupportNetworkCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         await #expect(throws: UpdateCommunitySupportNetworkError.self) {
             try await handler.handle(UpdateCommunitySupportNetworkCommand(
@@ -85,14 +82,13 @@ struct UpdateCommunitySupportNetworkTests {
     @Test("Actor isolation: chamadas concorrentes no mesmo handler")
     func concurrentCalls() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let patient1 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         let patient2 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         await repo.seed(patient1)
         await repo.seed(patient2)
 
-        let handler = UpdateCommunitySupportNetworkCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateCommunitySupportNetworkCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         async let r1: Void = handler.handle(UpdateCommunitySupportNetworkCommand(
             patientId: patient1.id.description,

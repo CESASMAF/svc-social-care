@@ -1,8 +1,35 @@
 import Vapor
 
+/// Identidade autenticada extraida do JWT.
+///
+/// ADR-023: `userId` E SEMPRE o `sub` claim do JWT (actorId canonico do
+/// audit trail). NAO usar `legacySub` como actorId — ele e apenas metadado
+/// de correlacao para queries historicas durante a janela de migracao
+/// Zitadel → Authentik (ADR-031).
 struct AuthenticatedUser: Sendable {
     let userId: String
     let roles: Set<String>
+
+    // Claims ACDG (ADR-031) — preenchidos a partir da property mapping
+    // `acdg-roles` do Authentik. Nulos antes da migracao ou quando o
+    // token nao carrega esses claims.
+    let orgId: String?
+    let personId: String?
+    let legacySub: String?
+
+    init(
+        userId: String,
+        roles: Set<String>,
+        orgId: String? = nil,
+        personId: String? = nil,
+        legacySub: String? = nil
+    ) {
+        self.userId = userId
+        self.roles = roles
+        self.orgId = orgId
+        self.personId = personId
+        self.legacySub = legacySub
+    }
 
     /// "superadmin" bypasses all role checks.
     var isSuperAdmin: Bool {

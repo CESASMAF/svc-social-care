@@ -42,8 +42,21 @@ public struct SocialBenefitsCollection: Codable, Equatable, Hashable, Sendable {
     /// O número total de benefícios registrados.
     public var count: Int { items.count }
 
-    /// A soma monetária total de todos os benefícios da coleção.
-    public var totalAmount: Double {
-        items.reduce(0.0) { $0 + $1.amount }
+    /// A soma monetária total de todos os benefícios da coleção (ADR-009).
+    ///
+    /// Soma exata em `Money` (centavos `Int64`) — sem perda IEEE 754.
+    /// Retorna `Money.zero` quando a coleção está vazia.
+    ///
+    /// Soma assume currency uniforme (BRL no projeto). Se `Money + Money`
+    /// lançar (currency mismatch), entendemos como bug de modelagem upstream
+    /// — propagamos como precondition para falhar loudly.
+    public var totalAmount: Money {
+        do {
+            return try items.reduce(Money.zero) { (acc: Money, item: SocialBenefit) -> Money in
+                try acc + item.amount
+            }
+        } catch {
+            preconditionFailure("ADR-009: SocialBenefitsCollection com currency mistas não é suportado. Bug upstream: \(error)")
+        }
     }
 }

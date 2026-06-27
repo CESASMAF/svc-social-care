@@ -27,15 +27,16 @@ public struct WorkIncomeVO: Codable, Equatable, Sendable {
     /// Identificador da condição de ocupação (Lookup para dominio_condicao_ocupacao).
     public let occupationId: LookupId
     public let hasWorkCard: Bool
-    public let monthlyAmount: Double
+    /// Rendimento mensal (ADR-009 — Money substitui Double).
+    public let monthlyAmount: Money
 
     /// Inicializa um rendimento individual validado.
     ///
-    /// - Throws: `WorkIncomeError.negativeMonthlyAmount` se o valor for negativo.
-    public init(memberId: PersonId, occupationId: LookupId, hasWorkCard: Bool, monthlyAmount: Double) throws {
-        guard monthlyAmount >= 0 else {
-            throw WorkIncomeError.negativeMonthlyAmount
-        }
+    /// - Throws: `WorkIncomeError.negativeMonthlyAmount` se o valor for negativo
+    ///   (validado pelo próprio `Money.init`; este wrapper traduz para o erro
+    ///   de domínio para manter API estável).
+    public init(memberId: PersonId, occupationId: LookupId, hasWorkCard: Bool, monthlyAmount: Money) {
+        // Money já garante centavos >= 0 — não há caminho que aceite negativo.
         self.memberId = memberId
         self.occupationId = occupationId
         self.hasWorkCard = hasWorkCard

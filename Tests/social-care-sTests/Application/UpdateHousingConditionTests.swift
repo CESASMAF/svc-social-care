@@ -28,11 +28,10 @@ struct UpdateHousingConditionTests {
     @Test("Deve atualizar condicao de moradia com sucesso")
     func successfulUpdate() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = UpdateHousingConditionCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateHousingConditionCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         try await handler.handle(UpdateHousingConditionCommand(
             patientId: patient.id.description,
@@ -44,18 +43,17 @@ struct UpdateHousingConditionTests {
         #expect(saved?.housingCondition != nil)
         #expect(saved?.housingCondition?.numberOfRooms == 5)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar com tipo de moradia invalido")
     func invalidHousingType() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = UpdateHousingConditionCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateHousingConditionCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         var draft = Self.validConditionDraft()
         let invalidDraft = UpdateHousingConditionCommand.ConditionDraft(
@@ -88,8 +86,7 @@ struct UpdateHousingConditionTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = UpdateHousingConditionCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateHousingConditionCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         await #expect(throws: UpdateHousingConditionError.self) {
             try await handler.handle(UpdateHousingConditionCommand(
@@ -103,14 +100,13 @@ struct UpdateHousingConditionTests {
     @Test("Actor isolation: atualizacoes concorrentes em pacientes distintos")
     func concurrentUpdates() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let p1 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         let p2 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         await repo.seed(p1)
         await repo.seed(p2)
 
-        let handler = UpdateHousingConditionCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateHousingConditionCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         async let r1: Void = handler.handle(UpdateHousingConditionCommand(
             patientId: p1.id.description,
