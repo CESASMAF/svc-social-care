@@ -41,13 +41,26 @@ estrutural tem um arquivo dedicado em `DECISIONS/ADR-NNN-<slug>.md`.
 | [023](DECISIONS/ADR-023-created-updated-at-on-root-tables.md) | Auditoria operacional via `created_at`/`updated_at` automáticos em tabelas raiz | Aceito | 2026-05-14 | — |
 | [024](DECISIONS/ADR-024-patient-assessment-aggregate-expand.md) | `PatientAssessment` aggregate — estágio EXPAND da decomposição da Fase 4 | Aceito | 2026-05-14 | — |
 | [025](DECISIONS/ADR-025-patient-assessment-dual-write.md) | `PatientAssessment` — estágio DUAL-WRITE da decomposição da Fase 4 | Aceito | 2026-05-14 | — |
+| [027](DECISIONS/ADR-027-oidc-multi-issuer.md) | OIDC multi-issuer (migração Zitadel → Authentik) | Aceito | 2026-07-04 | — |
+| [029](DECISIONS/ADR-029-oidc-role-precedence.md) | Precedência de roles multi-claim + property mapping `acdg-roles` | Aceito | 2026-07-04 | — |
+| [031](DECISIONS/ADR-031-oidc-defense-in-depth-and-acdg-claims.md) | Defense-in-depth no `verify` OIDC + claims ACDG (org_id/person_id/legacy_sub) | Aceito | 2026-07-04 | — |
 | [039](DECISIONS/ADR-039-erasure-policy-people-person-deleted.md) | Política de erasure ao consumir `people.person.deleted` (LGPD × No-Delete) | Aceito | 2026-06-09 | — |
 
-> IDs **026 a 038** estão **reservados** (planejados em
-> `handbook/reports/REMEDIATION_PIPELINE_2026_05_14.md`, cada um amarrado a um
-> ticket T-NNN; o ADR é criado conforme o ticket fecha). Por isso, temas **novos
-> fora do pipeline** usam IDs a partir de **039** (nunca renumerar). Próximo ID
-> livre fora da reserva: **040**.
+> **Faixa 026-038 (reconciliada em 2026-07-04):** originalmente **reservada** aos
+> tickets T-025..T-038 do `REMEDIATION_PIPELINE_2026_05_14.md`. Na prática, a
+> migração OIDC (PR #18) **materializou 027, 029 e 031** para o tema *multi-issuer
+> OIDC* — código, testes, a skill `swift-io-implementer` e o
+> `SENIOR_CODE_REVIEW_2026_05_14.md` já os referenciavam com esse sentido. Esses
+> três IDs ficam com o significado **OIDC** (ver tabela acima); a atribuição
+> original do pipeline para eles (naming EN / JWKS-refresh / LookupBatchValidator)
+> está **superada** — nenhum desses temas foi implementado, e se algum for
+> promovido receberá **ID ≥040** (regra "tema novo fora do pipeline usa ≥039",
+> como fez a ADR-039).
+>
+> Ainda **reservados** (planejados no pipeline, ADR criado conforme o ticket
+> fecha): **026, 028, 030, 032-038**. Observação: **T-028** (cursor pagination)
+> já foi implementado em v0.7.0 sem ADR formal — dívida de documentação a fechar.
+> Próximo ID livre fora da reserva: **040**.
 
 ## Regra de promoção `Proposto` → `Aceito` (ADR-003)
 

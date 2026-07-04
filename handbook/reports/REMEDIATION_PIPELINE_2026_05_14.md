@@ -1,5 +1,32 @@
 # Pipeline de Remediação — `social-care` (2026-05-14)
 
+> ## 🔖 SELO DE STATUS — 2026-07-04 (v0.15.0)
+>
+> **Este é um report datado (snapshot de 2026-05-14) — não é reescrito, apenas
+> selado com o status de execução.** Reconciliado com o código em 2026-07-04:
+>
+> - **Fases 0-4 (T-001..T-024): CONCLUÍDAS.** Materializaram-se `ADR-004..ADR-025`
+>   e o suite `Tests/.../Regression/` (T-001) com 22 arquivos em 6 subpastas.
+>   As migrations `2026_05_14_*` (PKs, FKs, TypeRelationshipAsUUID, AuditTrailDistinctId,
+>   PatientAssessments, RequiredDocuments, JSONB restore) são a evidência.
+> - **Fase 5 (T-025..T-031): PARCIAL.** ✅ T-028 (cursor pagination) entregue em
+>   v0.7.0 (`ListPatients`) — **sem ADR-028 formal** (dívida). ❌ T-025 (outbox
+>   index event_type — verificar), T-026 (UF CHECK), T-030 (UnitOfWork cross-repo),
+>   T-031 (LookupBatchValidator) **não implementados** — `grep` não encontra
+>   `UnitOfWork` nem `LookupBatchValidator` no código.
+> - **Fase 6 (T-032..T-038): PARCIAL.** Alguns lint tests de regressão existem
+>   (RoleGuard); UoW/clock-injetável/naming em aberto.
+> - **⚠️ Conflito de numeração de ADR resolvido:** os IDs **027 / 029 / 031**
+>   reservados aqui para *naming EN* / *JWKS-refresh* / *LookupBatchValidator*
+>   foram, na prática, **materializados para o tema OIDC multi-issuer** (PR #18) —
+>   é como código, testes e skills os usam. A atribuição deste report para esses
+>   três IDs está **superada**; os temas do pipeline, se promovidos, recebem
+>   ID ≥040. Ver `handbook/architecture/DECISIONS.md` (nota da faixa 026-038).
+>
+> Fora deste pipeline, o serviço também ganhou: patient lifecycle, erasure LGPD
+> (ADR-039), Configuration BC e OIDC multi-issuer (ADR-027/029/031). Detalhe em
+> `handbook/IMPLEMENTATION_PLAN.md` (bloco STATUS).
+
 **Fonte:** cruzamento entre `SENIOR_CODE_REVIEW_2026_05_14.md` (revisão senior cross-camada) e `DATABASE_MODELING_REVIEW_2026_05_14.md` (revisão teórica de schema).
 **Orquestrador:** `swift-orchestrator` (`.claude/agents/swift-orchestrator.md`) com pipeline 4-Wave (RED → GREEN → REVIEW → QUALITY).
 **Objetivo:** transformar os ~117 achados em uma pipeline acionável de **tickets atômicos**, com testes de regressão escritos ANTES da implementação, ADRs documentando cada decisão estrutural, e _Better Patterns_ alimentando as skills para que erros similares não voltem.
