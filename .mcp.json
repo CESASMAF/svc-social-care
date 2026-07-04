@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "acdg-skills": {
+      "command": "bun",
+      "args": [
+        "run",
+        "/Users/gabriel_aderaldo/Desktop/Projetos/dev/envolve/acdg/skills_base/shared-tools/mcp-server.ts"
+      ]
+    }
+  }
+}
