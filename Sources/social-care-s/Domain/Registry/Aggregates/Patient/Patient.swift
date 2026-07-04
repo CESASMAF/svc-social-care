@@ -26,13 +26,17 @@ public struct Patient: EventSourcedAggregate, EventSourcedAggregateInternal {
     public let personId: PersonId
 
     /// Dados pessoais de identificação civil (nome, nascimento, etc).
-    public let personalData: PersonalData?
+    ///
+    /// `internal(set)`: leitura pública, escrita restrita ao módulo. Mutável para
+    /// suportar anonimização (erasure LGPD — ADR-039); a identidade do agregado
+    /// (`id`/`personId`) permanece `let`.
+    public internal(set) var personalData: PersonalData?
 
     /// Documentos civis agrupados (CPF, NIS, RG).
-    public let civilDocuments: CivilDocuments?
+    public internal(set) var civilDocuments: CivilDocuments?
 
     /// O endereço principal de residência da família.
-    public let address: Address?
+    public internal(set) var address: Address?
     
     // MARK: - Collective Data (Family)
     

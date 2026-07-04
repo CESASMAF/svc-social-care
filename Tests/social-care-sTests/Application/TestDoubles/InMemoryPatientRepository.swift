@@ -5,7 +5,36 @@ actor InMemoryPatientRepository: PatientRepository {
     private var storage: [PatientId: Patient] = [:]
     private(set) var saveCallCount = 0
 
+    /// Eventos coletados pelos `save(_:)` sucessivos. Espelha o invariante
+    /// do `SQLKitPatientRepository` real (ADR-014): events ficam na save,
+    /// não em chamada separada via EventBus. Testes inspecionam via:
+    /// `let events = await repo.publishedEvents`.
+    private(set) var publishedEvents: [any DomainEvent] = []
+
+    /// Salva o agregado com **optimistic lock** via coluna `version` (ADR-005).
+    ///
+    /// - Se row não existe: aceita (CREATE path).
+    /// - Se row existe: aceita apenas se `existing.version == patient.version - 1`,
+    ///   senão lança `PersistenceConflictError.optimisticLockFailed`.
+    ///
+    /// Este comportamento espelha o `SQLKitPatientRepository` real — a fake é
+    /// estritamente equivalente para que testes contra ela detectem o mesmo
+    /// tipo de bug que aparece em produção.
     func save(_ patient: Patient) async throws {
+        if let existing = storage[patient.id] {
+            let expected = patient.version - 1
+            guard existing.version == expected else {
+                throw PersistenceConflictError.optimisticLockFailed(
+                    expectedVersion: expected,
+                    actualVersion: existing.version
+                )
+            }
+        }
+        // ADR-014: save é a porta única de eventos. Replicamos os
+        // uncommittedEvents para `publishedEvents` antes de armazenar — análogo
+        // ao `SQLKitPatientRepository` que escreve em `outbox_messages` na
+        // mesma transação do agregado.
+        publishedEvents.append(contentsOf: patient.uncommittedEvents)
         storage[patient.id] = patient
         saveCallCount += 1
     }

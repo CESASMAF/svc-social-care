@@ -149,27 +149,30 @@ struct CodeReviewRegressionTests {
 
     // MARK: - M4: WorkIncomeVO validation
 
-    @Test("M4: WorkIncomeVO rejects negative monthlyAmount")
+    @Test("M4: WorkIncomeVO rejects negative monthlyAmount via Money.init (ADR-009)")
     func workIncomeNegativeAmount() {
-        #expect(throws: WorkIncomeError.negativeMonthlyAmount) {
-            try WorkIncomeVO(
+        // ADR-009: validação de negativo agora vive em Money.init, não no
+        // WorkIncomeVO. WorkIncomeError.negativeMonthlyAmount continua existindo
+        // mas ninguém o lança — aqui validamos que o caminho real (Money) bloqueia.
+        #expect(throws: MoneyError.self) {
+            _ = WorkIncomeVO(
                 memberId: PersonId(),
                 occupationId: try LookupId(UUID().uuidString),
                 hasWorkCard: true,
-                monthlyAmount: -100.0
+                monthlyAmount: try Money(centavos: -10000)  // -R$ 100,00
             )
         }
     }
 
     @Test("M4: WorkIncomeVO accepts zero monthlyAmount")
     func workIncomeZeroAmount() throws {
-        let vo = try WorkIncomeVO(
+        let vo = WorkIncomeVO(
             memberId: PersonId(),
             occupationId: try LookupId(UUID().uuidString),
             hasWorkCard: false,
-            monthlyAmount: 0.0
+            monthlyAmount: .zero  // ADR-009: Money.zero
         )
-        #expect(vo.monthlyAmount == 0.0)
+        #expect(vo.monthlyAmount == .zero)
     }
 
     @Test("M4: WorkIncomeError conforms to AppErrorConvertible")

@@ -8,7 +8,6 @@ struct UpdateEducationalStatusTests {
     @Test("Deve atualizar status educacional com sucesso")
     func successfulUpdate() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
@@ -17,7 +16,7 @@ struct UpdateEducationalStatusTests {
         let effectId = UUID().uuidString
 
         let handler = UpdateEducationalStatusCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: AllowAllLookupValidator()
         )
 
         try await handler.handle(UpdateEducationalStatusCommand(
@@ -36,20 +35,19 @@ struct UpdateEducationalStatusTests {
         #expect(saved?.educationalStatus?.memberProfiles.count == 1)
         #expect(saved?.educationalStatus?.programOccurrences.count == 1)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar com lookup de escolaridade invalido")
     func invalidEducationLevelLookup() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = UpdateEducationalStatusCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: lookup
+            repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: lookup
         )
 
         await #expect(throws: UpdateEducationalStatusError.self) {
@@ -65,16 +63,15 @@ struct UpdateEducationalStatusTests {
             ))
         }
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount == 0)
     }
 
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let handler = UpdateEducationalStatusCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: AllowAllLookupValidator()
+            repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: AllowAllLookupValidator()
         )
 
         await #expect(throws: UpdateEducationalStatusError.self) {

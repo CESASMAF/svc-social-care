@@ -189,10 +189,11 @@ struct ComputedAnalyticsResponse: Content {
                 memberCount: memberCount
             )
             self.financial = FinancialIndicatorsResponse(
-                totalWorkIncome: indicators.totalWorkIncome,
-                perCapitaWorkIncome: indicators.perCapitaWorkIncome,
-                totalGlobalIncome: indicators.totalGlobalIncome,
-                perCapitaGlobalIncome: indicators.perCapitaGlobalIncome
+                // ADR-009: indicators são Money — DTO HTTP serializa como Double (valorReal).
+                totalWorkIncome: indicators.totalWorkIncome.valorReal,
+                perCapitaWorkIncome: indicators.perCapitaWorkIncome.valorReal,
+                totalGlobalIncome: indicators.totalGlobalIncome.valorReal,
+                perCapitaGlobalIncome: indicators.perCapitaGlobalIncome.valorReal
             )
         } else {
             self.financial = nil
@@ -373,7 +374,8 @@ struct SocioEconomicResponse: Content {
     let mainSourceOfIncome: String
     let socialBenefits: [SocialBenefitResponse]
     init(from s: SocioEconomicSituation) {
-        totalFamilyIncome = s.totalFamilyIncome; incomePerCapita = s.incomePerCapita
+        // ADR-009: Money → Double (valorReal) na serialização HTTP.
+        totalFamilyIncome = s.totalFamilyIncome.valorReal; incomePerCapita = s.incomePerCapita.valorReal
         receivesSocialBenefit = s.receivesSocialBenefit; hasUnemployed = s.hasUnemployed
         mainSourceOfIncome = s.mainSourceOfIncome
         socialBenefits = s.socialBenefits.items.map { SocialBenefitResponse(from: $0) }
@@ -383,7 +385,8 @@ struct SocioEconomicResponse: Content {
 struct SocialBenefitResponse: Content {
     let benefitName: String; let amount: Double; let beneficiaryId: String
     init(from b: SocialBenefit) {
-        benefitName = b.benefitName; amount = b.amount; beneficiaryId = b.beneficiaryId.description
+        // ADR-009: Money → Double (valorReal) na serialização HTTP.
+        benefitName = b.benefitName; amount = b.amount.valorReal; beneficiaryId = b.beneficiaryId.description
     }
 }
 
@@ -403,7 +406,8 @@ struct WorkIncomeResponse: Content {
     let hasWorkCard: Bool; let monthlyAmount: Double
     init(from i: WorkIncomeVO) {
         memberId = i.memberId.description; occupationId = i.occupationId.description
-        hasWorkCard = i.hasWorkCard; monthlyAmount = i.monthlyAmount
+        // ADR-009: Money → Double (valorReal) na serialização HTTP.
+        hasWorkCard = i.hasWorkCard; monthlyAmount = i.monthlyAmount.valorReal
     }
 }
 
@@ -616,49 +620,67 @@ struct AuditTrailEntryResponse: Content {
     }
 }
 
-struct AnyJSON: Content, @unchecked Sendable {
-    let value: Any
+/// JSON heterogêneo seguro para Sendable (ADR-018).
+///
+/// Pré-fix era `struct AnyJSON: Content, @unchecked Sendable` armazenando
+/// `Any` — Sendable era promessa sem verificação.
+///
+/// Pós-fix: enum fechado com cases tipados. `init(value: Any)` mantido para
+/// back-compat com `AuditTrailEntryResponse` que decodifica payload JSON
+/// genérico via `JSONSerialization.jsonObject`.
+enum AnyJSON: Content {
+    case object([String: AnyJSON])
+    case array([AnyJSON])
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case null
 
-    init(value: Any) { self.value = value }
+    init(value: Any) {
+        switch value {
+        case let v as AnyJSON: self = v
+        case let v as String: self = .string(v)
+        case let v as Bool: self = .bool(v)
+        case let v as Int: self = .int(v)
+        case let v as Double: self = .double(v)
+        case let v as [Any]: self = .array(v.map { AnyJSON(value: $0) })
+        case let v as [String: Any]: self = .object(v.mapValues { AnyJSON(value: $0) })
+        default: self = .null
+        }
+    }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        try AnyJSON.encode(value, into: &container)
+        switch self {
+        case .object(let v): try container.encode(v)
+        case .array(let v): try container.encode(v)
+        case .string(let v): try container.encode(v)
+        case .int(let v): try container.encode(v)
+        case .double(let v): try container.encode(v)
+        case .bool(let v): try container.encode(v)
+        case .null: try container.encodeNil()
+        }
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        if let dict = try? container.decode([String: AnyJSON].self) {
-            self.value = dict.mapValues { $0.value }
-        } else if let arr = try? container.decode([AnyJSON].self) {
-            self.value = arr.map { $0.value }
-        } else if let s = try? container.decode(String.self) {
-            self.value = s
-        } else if let n = try? container.decode(Double.self) {
-            self.value = n
-        } else if let b = try? container.decode(Bool.self) {
-            self.value = b
+        if container.decodeNil() {
+            self = .null
+        } else if let v = try? container.decode(Bool.self) {
+            self = .bool(v)
+        } else if let v = try? container.decode(Int.self) {
+            self = .int(v)
+        } else if let v = try? container.decode(Double.self) {
+            self = .double(v)
+        } else if let v = try? container.decode(String.self) {
+            self = .string(v)
+        } else if let v = try? container.decode([AnyJSON].self) {
+            self = .array(v)
+        } else if let v = try? container.decode([String: AnyJSON].self) {
+            self = .object(v)
         } else {
-            self.value = NSNull()
-        }
-    }
-
-    private static func encode(_ val: Any, into container: inout SingleValueEncodingContainer) throws {
-        switch val {
-        case let dict as [String: Any]:
-            try container.encode(dict.mapValues { AnyJSON(value: $0) })
-        case let arr as [Any]:
-            try container.encode(arr.map { AnyJSON(value: $0) })
-        case let s as String:
-            try container.encode(s)
-        case let b as Bool:
-            try container.encode(b)
-        case let i as Int:
-            try container.encode(i)
-        case let d as Double:
-            try container.encode(d)
-        default:
-            try container.encodeNil()
+            self = .null
         }
     }
 }

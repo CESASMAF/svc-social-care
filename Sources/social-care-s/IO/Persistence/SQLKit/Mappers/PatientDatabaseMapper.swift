@@ -13,6 +13,11 @@ struct PatientDatabaseMapper {
 
         let diagnoses = patient.diagnoses.map { d in
             DiagnosisModel(
+                // ADR-021: PK surrogate DETERMINÍSTICA derivada da chave
+                // natural `(patient_id, icd_code, date)`. Mesmo Diagnosis →
+                // mesmo ID a cada save → diff-based upsert preserva
+                // identidade física, audit trail e triggers ON UPDATE.
+                id: DeterministicUUID.from("patient_diagnoses|\(patientId.uuidString)|\(d.id.value)|\(d.date.date.timeIntervalSince1970)"),
                 patient_id: patientId,
                 icd_code: d.id.value,
                 date: d.date.date,
@@ -20,17 +25,30 @@ struct PatientDatabaseMapper {
             )
         }
 
-        let familyMembers = try patient.familyMembers.map { m in
+        let familyMembers = patient.familyMembers.map { m in
             FamilyMemberModel(
                 patient_id: patientId,
                 person_id: UUID(uuidString: m.personId.description)!,
-                relationship: m.relationshipId.description,
+                relationship_id: UUID(uuidString: m.relationshipId.description)!,
                 is_primary_caregiver: m.isPrimaryCaregiver,
                 resides_with_patient: m.residesWithPatient,
                 has_disability: m.hasDisability,
-                required_documents: String(data: try encoder.encode(m.requiredDocuments.map { $0.rawValue }), encoding: .utf8)!,
                 birth_date: m.birthDate.date
             )
+        }
+
+        // ADR-020: required_documents agora vive em tabela filha 1NF.
+        // Achatamos `[FamilyMember] → [FamilyMemberRequiredDocumentModel]` —
+        // cada membro contribui N rows (uma por documento solicitado).
+        let familyMemberRequiredDocuments = patient.familyMembers.flatMap { m -> [FamilyMemberRequiredDocumentModel] in
+            let memberPersonId = UUID(uuidString: m.personId.description)!
+            return m.requiredDocuments.map { doc in
+                FamilyMemberRequiredDocumentModel(
+                    patient_id: patientId,
+                    person_id: memberPersonId,
+                    document_code: doc.rawValue
+                )
+            }
         }
 
         let appointments = patient.appointments.map { a in
@@ -85,6 +103,7 @@ struct PatientDatabaseMapper {
             patient: model,
             diagnoses: diagnoses,
             familyMembers: familyMembers,
+            familyMemberRequiredDocuments: familyMemberRequiredDocuments,
             appointments: appointments,
             referrals: referrals,
             reports: reports,
@@ -105,6 +124,7 @@ struct PatientDatabaseMapper {
         patient: PatientModel,
         diagnoses: [DiagnosisModel],
         familyMembers: [FamilyMemberModel],
+        familyMemberRequiredDocuments: [FamilyMemberRequiredDocumentModel],
         appointments: [AppointmentModel],
         referrals: [ReferralModel],
         reports: [ViolationReportModel],
@@ -127,12 +147,28 @@ struct PatientDatabaseMapper {
             )
         }
 
+        // ADR-020: agrupa rows da tabela filha por (patient_id, person_id).
+        // Lookup O(1) por person_id durante a montagem dos FamilyMembers.
+        // Valor inválido na tabela filha NÃO acontece (CHECK no schema)
+        // mas, por defesa em profundidade, qualquer code não reconhecido
+        // lança PersistenceMappingFailure (em vez do antigo silêncio).
+        var docsByMember: [UUID: [RequiredDocument]] = [:]
+        for row in familyMemberRequiredDocuments {
+            guard let doc = RequiredDocument(rawValue: row.document_code) else {
+                throw PersistenceDataIntegrityError.invalidEnumValue(
+                    column: "family_member_required_documents.document_code",
+                    value: row.document_code,
+                    expected: RequiredDocument.allCases.map(\.rawValue).joined(separator: ",")
+                )
+            }
+            docsByMember[row.person_id, default: []].append(doc)
+        }
+
         let domainFamily = try familyMembers.map { m in
-            let rawDocs = (try? decoder.decode([String].self, from: Data(m.required_documents.utf8))) ?? []
-            let docs = rawDocs.compactMap { RequiredDocument(rawValue: $0) }
+            let docs = docsByMember[m.person_id] ?? []
             return try FamilyMember(
                 personId: try PersonId(m.person_id.uuidString),
-                relationshipId: try LookupId(m.relationship),
+                relationshipId: try LookupId(m.relationship_id.uuidString),
                 isPrimaryCaregiver: m.is_primary_caregiver,
                 residesWithPatient: m.resides_with_patient,
                 hasDisability: m.has_disability,
@@ -265,6 +301,9 @@ struct PatientDatabaseSnapshot {
     let patient: PatientModel
     let diagnoses: [DiagnosisModel]
     let familyMembers: [FamilyMemberModel]
+    /// ADR-020 (DB-5/S-H-A7): tabela filha 1NF para required_documents.
+    /// Persistida lado a lado com `familyMembers` no mesmo `repository.save`.
+    let familyMemberRequiredDocuments: [FamilyMemberRequiredDocumentModel]
     let appointments: [AppointmentModel]
     let referrals: [ReferralModel]
     let reports: [ViolationReportModel]
@@ -350,8 +389,9 @@ private extension PatientDatabaseMapper {
             shs_functional_dependencies: patient.socialHealthSummary.map { String(data: try! encoder.encode($0.functionalDependencies), encoding: .utf8)! },
             shs_has_relevant_drug_therapy: patient.socialHealthSummary?.hasRelevantDrugTherapy,
             // socioeconomic_situation
-            ses_total_family_income: patient.socioeconomicSituation?.totalFamilyIncome,
-            ses_income_per_capita: patient.socioeconomicSituation?.incomePerCapita,
+            // ADR-009: Money → Double (valorReal) na fronteira IO; banco é NUMERIC(12,2).
+            ses_total_family_income: patient.socioeconomicSituation?.totalFamilyIncome.valorReal,
+            ses_income_per_capita: patient.socioeconomicSituation?.incomePerCapita.valorReal,
             ses_receives_social_benefit: patient.socioeconomicSituation?.receivesSocialBenefit,
             ses_main_source_of_income: patient.socioeconomicSituation?.mainSourceOfIncome,
             ses_has_unemployed: patient.socioeconomicSituation?.hasUnemployed,
@@ -388,12 +428,15 @@ private extension PatientDatabaseMapper {
         guard let wi = patient.workAndIncome else { return [] }
         return wi.individualIncomes.map { income in
             MemberIncomeModel(
-                id: UUID(),
+                // ADR-021: id determinístico derivado de (patient, member).
+                // Cada membro tem UM income — chave natural é (patient_id, member_id).
+                id: DeterministicUUID.from("member_incomes|\(patientId.uuidString)|\(income.memberId.description)"),
                 patient_id: patientId,
                 member_id: UUID(uuidString: income.memberId.description)!,
                 occupation_id: UUID(uuidString: income.occupationId.description),
                 has_work_card: income.hasWorkCard,
-                monthly_amount: income.monthlyAmount
+                // ADR-009: Money → Double (valorReal). Banco NUMERIC(12,2).
+                monthly_amount: income.monthlyAmount.valorReal
             )
         }
     }
@@ -404,11 +447,14 @@ private extension PatientDatabaseMapper {
         if let ses = patient.socioeconomicSituation {
             models += ses.socialBenefits.items.map { b in
                 SocialBenefitModel(
-                    id: UUID(),
+                    // ADR-021: chave natural inclui `source` para evitar colisão
+                    // entre o mesmo benefício declarado em SES e em WI.
+                    id: DeterministicUUID.from("social_benefits|SOCIOECONOMIC|\(patientId.uuidString)|\(b.beneficiaryId.description)|\(b.benefitName)"),
                     patient_id: patientId,
                     source: "SOCIOECONOMIC",
                     benefit_name: b.benefitName,
-                    amount: b.amount,
+                    // ADR-009: Money → Double (valorReal). Banco NUMERIC(12,2).
+                    amount: b.amount.valorReal,
                     beneficiary_id: UUID(uuidString: b.beneficiaryId.description)!
                 )
             }
@@ -417,11 +463,12 @@ private extension PatientDatabaseMapper {
         if let wi = patient.workAndIncome {
             models += wi.socialBenefits.map { b in
                 SocialBenefitModel(
-                    id: UUID(),
+                    id: DeterministicUUID.from("social_benefits|WORK_AND_INCOME|\(patientId.uuidString)|\(b.beneficiaryId.description)|\(b.benefitName)"),
                     patient_id: patientId,
                     source: "WORK_AND_INCOME",
                     benefit_name: b.benefitName,
-                    amount: b.amount,
+                    // ADR-009: Money → Double (valorReal). Banco NUMERIC(12,2).
+                    amount: b.amount.valorReal,
                     beneficiary_id: UUID(uuidString: b.beneficiaryId.description)!
                 )
             }
@@ -434,7 +481,8 @@ private extension PatientDatabaseMapper {
         guard let es = patient.educationalStatus else { return [] }
         return es.memberProfiles.map { p in
             MemberEducationalProfileModel(
-                id: UUID(),
+                // ADR-021: 1 perfil por membro — chave (patient, member).
+                id: DeterministicUUID.from("member_educational_profiles|\(patientId.uuidString)|\(p.memberId.description)"),
                 patient_id: patientId,
                 member_id: UUID(uuidString: p.memberId.description)!,
                 can_read_write: p.canReadWrite,
@@ -448,7 +496,8 @@ private extension PatientDatabaseMapper {
         guard let es = patient.educationalStatus else { return [] }
         return es.programOccurrences.map { o in
             ProgramOccurrenceModel(
-                id: UUID(),
+                // ADR-021: chave inclui `date` (ocorrências múltiplas ao longo do tempo).
+                id: DeterministicUUID.from("program_occurrences|\(patientId.uuidString)|\(o.memberId.description)|\(o.date.date.timeIntervalSince1970)|\(o.effectId.description)"),
                 patient_id: patientId,
                 member_id: UUID(uuidString: o.memberId.description)!,
                 date: o.date.date,
@@ -462,7 +511,9 @@ private extension PatientDatabaseMapper {
         guard let hs = patient.healthStatus else { return [] }
         return hs.deficiencies.map { d in
             MemberDeficiencyModel(
-                id: UUID(),
+                // ADR-021: chave (patient, member, deficiency_type) — múltiplas
+                // deficiências por membro, mas uma por tipo.
+                id: DeterministicUUID.from("member_deficiencies|\(patientId.uuidString)|\(d.memberId.description)|\(d.deficiencyTypeId.description)"),
                 patient_id: patientId,
                 member_id: UUID(uuidString: d.memberId.description)!,
                 deficiency_type_id: UUID(uuidString: d.deficiencyTypeId.description),
@@ -476,7 +527,8 @@ private extension PatientDatabaseMapper {
         guard let hs = patient.healthStatus else { return [] }
         return hs.gestatingMembers.map { g in
             GestatingMemberModel(
-                id: UUID(),
+                // ADR-021: 1 row por membro gestante — chave (patient, member).
+                id: DeterministicUUID.from("gestating_members|\(patientId.uuidString)|\(g.memberId.description)"),
                 patient_id: patientId,
                 member_id: UUID(uuidString: g.memberId.description)!,
                 months_gestation: g.monthsGestation,
@@ -503,7 +555,9 @@ private extension PatientDatabaseMapper {
         guard let ii = patient.intakeInfo else { return [] }
         return ii.linkedSocialPrograms.map { lp in
             IngressLinkedProgramModel(
-                id: UUID(),
+                // ADR-021: chave (patient, program). Um patient não vincula
+                // o mesmo programa duas vezes.
+                id: DeterministicUUID.from("ingress_linked_programs|\(patientId.uuidString)|\(lp.programId.description)"),
                 patient_id: patientId,
                 program_id: UUID(uuidString: lp.programId.description),
                 observation: lp.observation
@@ -676,14 +730,16 @@ private extension PatientDatabaseMapper {
         let domainBenefits = try sesBenefits.map { b in
             try SocialBenefit(
                 benefitName: b.benefit_name,
-                amount: b.amount,
+                // ADR-009: Double (NUMERIC) → Money via valorReal init.
+                amount: try Money(valorReal: b.amount),
                 beneficiaryId: try PersonId(b.beneficiary_id.uuidString)
             )
         }
 
         return try SocioEconomicSituation(
-            totalFamilyIncome: totalIncome,
-            incomePerCapita: perCapita,
+            // ADR-009: NUMERIC Double → Money via valorReal.
+            totalFamilyIncome: try Money(valorReal: totalIncome),
+            incomePerCapita: try Money(valorReal: perCapita),
             receivesSocialBenefit: receivesBenefit,
             socialBenefits: try SocialBenefitsCollection(domainBenefits),
             mainSourceOfIncome: mainSource,
@@ -699,11 +755,14 @@ private extension PatientDatabaseMapper {
         guard let hasRetired = p.wi_has_retired_members else { return nil }
 
         let incomes = try memberIncomes.map { m in
-            try WorkIncomeVO(
+            // ADR-009: WorkIncomeVO.init não-throws (Money valida centavos no próprio init).
+            // Aqui o `try` cobre apenas Money.init que pode lançar invalidCurrency
+            // (se default "BRL" falhar — não falha) ou negativeAmount (NUMERIC já é >= 0).
+            WorkIncomeVO(
                 memberId: try PersonId(m.member_id.uuidString),
                 occupationId: try LookupId((m.occupation_id ?? UUID()).uuidString),
                 hasWorkCard: m.has_work_card,
-                monthlyAmount: m.monthly_amount
+                monthlyAmount: try Money(valorReal: m.monthly_amount)
             )
         }
 
@@ -711,7 +770,7 @@ private extension PatientDatabaseMapper {
         let domainBenefits = try wiBenefits.map { b in
             try SocialBenefit(
                 benefitName: b.benefit_name,
-                amount: b.amount,
+                amount: try Money(valorReal: b.amount),
                 beneficiaryId: try PersonId(b.beneficiary_id.uuidString)
             )
         }

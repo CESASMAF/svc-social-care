@@ -5,8 +5,30 @@ on:
     branches:
       - main
 
+# O reusable (reusable-pr-size-guard.yml) precisa de `pull-requests: write` para
+# comentar/rotular o PR. Como o default do repo é `read`, sem este bloco o caller
+# não consegue conceder a permissão e o GitHub recusa no startup ("workflow file
+# issue" → startup_failure de 1s). Declarar aqui resolve a causa raiz.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   size:
     name: PR size check
     if: github.actor != 'dependabot[bot]'
     uses: acdgbrasil/.github/.github/workflows/reusable-pr-size-guard.yml@main
+    with:
+      # Mede tamanho de CÓDIGO a revisar — docs/legal e lockfiles não contam.
+      # (sobrescreve o default do reusable; re-inclui os ignores padrão + docs).
+      ignore_patterns: |
+        *.lock
+        *.resolved
+        package-lock.json
+        Packages.resolved
+        *.generated.*
+        *.g.dart
+        *.freezed.dart
+        *.md
+        LICENSE
+        handbook/**

@@ -8,11 +8,10 @@ struct AssignPrimaryCaregiverTests {
     @Test("Deve atribuir cuidador principal com sucesso")
     func successfulAssignment() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createWithAdditionalMemberActive()
         await repo.seed(patient)
 
-        let handler = AssignPrimaryCaregiverCommandHandler(repository: repo, eventBus: bus)
+        let handler = AssignPrimaryCaregiverCommandHandler(repository: repo)
 
         try await handler.handle(AssignPrimaryCaregiverCommand(
             patientId: patient.id.description,
@@ -24,18 +23,17 @@ struct AssignPrimaryCaregiverTests {
         let newCaregiver = saved?.familyMembers.first { $0.personId.description == PatientFixture.defaultMemberId }
         #expect(newCaregiver?.isPrimaryCaregiver == true)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar quando membro nao pertence a familia")
     func memberNotInFamily() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = AssignPrimaryCaregiverCommandHandler(repository: repo, eventBus: bus)
+        let handler = AssignPrimaryCaregiverCommandHandler(repository: repo)
 
         await #expect(throws: AssignPrimaryCaregiverError.self) {
             try await handler.handle(AssignPrimaryCaregiverCommand(
@@ -49,8 +47,7 @@ struct AssignPrimaryCaregiverTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = AssignPrimaryCaregiverCommandHandler(repository: repo, eventBus: bus)
+        let handler = AssignPrimaryCaregiverCommandHandler(repository: repo)
 
         await #expect(throws: AssignPrimaryCaregiverError.self) {
             try await handler.handle(AssignPrimaryCaregiverCommand(

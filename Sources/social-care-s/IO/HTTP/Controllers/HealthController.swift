@@ -19,7 +19,7 @@ struct HealthController: RouteCollection {
             let body = ReadinessResponse(status: "ready")
             return try await body.encodeResponse(status: .ok, for: req)
         } catch {
-            req.logger.error("Readiness check failed: \(error)")
+            req.logger.error("Readiness check failed", metadata: LogSanitizer.metadata(for: error))
             let body = ReadinessResponse(status: "unavailable")
             return try await body.encodeResponse(status: .serviceUnavailable, for: req)
         }

@@ -3,13 +3,16 @@ import Foundation
 /// Implementação do serviço Maestro para atualização das condições de moradia.
 public actor UpdateHousingConditionCommandHandler: UpdateHousingConditionUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
-    
-    public init(repository: any PatientRepository, eventBus: any EventBus) {
+    private let assessmentRepository: any PatientAssessmentRepository
+
+    public init(
+        repository: any PatientRepository,
+        assessmentRepository: any PatientAssessmentRepository
+    ) {
         self.repository = repository
-        self.eventBus = eventBus
+        self.assessmentRepository = assessmentRepository
     }
-    
+
     public func handle(_ command: UpdateHousingConditionCommand) async throws {
         do {
             // 1. Parse
@@ -63,10 +66,17 @@ public actor UpdateHousingConditionCommandHandler: UpdateHousingConditionUseCase
             // 3. Domain Logic
             try patient.updateHousingCondition(condition, actorId: command.actorId)
             
-            // 4. Persistence & Events
+            // 4. Persistence & Events (escrita primária — outbox + lock)
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
-            
+
+            // 5. ADR-025 DUAL-WRITE: escrita secundária no novo agregado.
+            // Sem optimistic lock; UPSERT idempotente. Falha aqui NÃO
+            // reverte (4) — handler do CUTOVER fará compensação. Por
+            // agora, log apenas se útil; trade-off documentado.
+            try await assessmentRepository.dualWriteUpsert(
+                PatientAssessmentBuilder.from(patient)
+            )
+
         } catch {
             throw mapError(error, patientId: command.patientId)
         }

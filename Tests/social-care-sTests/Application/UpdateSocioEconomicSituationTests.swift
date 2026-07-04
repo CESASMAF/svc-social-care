@@ -8,11 +8,10 @@ struct UpdateSocioEconomicSituationTests {
     @Test("Deve atualizar situacao socioeconomica com sucesso")
     func successfulUpdate() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = UpdateSocioEconomicSituationCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateSocioEconomicSituationCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         try await handler.handle(UpdateSocioEconomicSituationCommand(
             patientId: patient.id.description,
@@ -31,20 +30,20 @@ struct UpdateSocioEconomicSituationTests {
 
         let saved = try await repo.find(byPersonId: PersonId(PatientFixture.defaultPersonId))
         #expect(saved?.socioeconomicSituation != nil)
-        #expect(saved?.socioeconomicSituation?.totalFamilyIncome == 2500.0)
+        // ADR-009: totalFamilyIncome agora é Money — comparar com Money construído.
+        #expect(saved?.socioeconomicSituation?.totalFamilyIncome == (try Money(valorReal: 2500.0)))
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve atualizar sem beneficios sociais")
     func updateWithoutBenefits() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = UpdateSocioEconomicSituationCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateSocioEconomicSituationCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         try await handler.handle(UpdateSocioEconomicSituationCommand(
             patientId: patient.id.description,
@@ -66,8 +65,7 @@ struct UpdateSocioEconomicSituationTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = UpdateSocioEconomicSituationCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateSocioEconomicSituationCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         await #expect(throws: UpdateSocioEconomicSituationError.self) {
             try await handler.handle(UpdateSocioEconomicSituationCommand(
@@ -88,14 +86,13 @@ struct UpdateSocioEconomicSituationTests {
     @Test("Actor isolation: atualizacoes concorrentes")
     func concurrentUpdates() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let p1 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         let p2 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         await repo.seed(p1)
         await repo.seed(p2)
 
-        let handler = UpdateSocioEconomicSituationCommandHandler(repository: repo, eventBus: bus)
+        let handler = UpdateSocioEconomicSituationCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository())
 
         async let r1: Void = handler.handle(UpdateSocioEconomicSituationCommand(
             patientId: p1.id.description,
@@ -121,7 +118,8 @@ struct UpdateSocioEconomicSituationTests {
 
         let saved1 = try await repo.find(byPersonId: p1.personId)
         let saved2 = try await repo.find(byPersonId: p2.personId)
-        #expect(saved1?.socioeconomicSituation?.totalFamilyIncome == 3000.0)
-        #expect(saved2?.socioeconomicSituation?.totalFamilyIncome == 1000.0)
+        // ADR-009: totalFamilyIncome agora é Money.
+        #expect(saved1?.socioeconomicSituation?.totalFamilyIncome == (try Money(valorReal: 3000.0)))
+        #expect(saved2?.socioeconomicSituation?.totalFamilyIncome == (try Money(valorReal: 1000.0)))
     }
 }

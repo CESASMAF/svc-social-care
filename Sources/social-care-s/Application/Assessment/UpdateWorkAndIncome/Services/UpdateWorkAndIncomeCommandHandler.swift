@@ -2,12 +2,16 @@ import Foundation
 
 public actor UpdateWorkAndIncomeCommandHandler: UpdateWorkAndIncomeUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
+    private let assessmentRepository: any PatientAssessmentRepository
     private let lookupValidator: any LookupValidating
 
-    public init(repository: any PatientRepository, eventBus: any EventBus, lookupValidator: any LookupValidating) {
+    public init(
+        repository: any PatientRepository,
+        assessmentRepository: any PatientAssessmentRepository,
+        lookupValidator: any LookupValidating
+    ) {
         self.repository = repository
-        self.eventBus = eventBus
+        self.assessmentRepository = assessmentRepository
         self.lookupValidator = lookupValidator
     }
 
@@ -24,20 +28,20 @@ public actor UpdateWorkAndIncomeCommandHandler: UpdateWorkAndIncomeUseCase {
                 }
             }
 
-            // 3. Build VOs
+            // 3. Build VOs (ADR-009 — converte Double do Command para Money no domínio)
             let incomes = try command.individualIncomes.map { draft in
-                try WorkIncomeVO(
+                WorkIncomeVO(
                     memberId: try PersonId(draft.memberId),
                     occupationId: try LookupId(draft.occupationId),
                     hasWorkCard: draft.hasWorkCard,
-                    monthlyAmount: draft.monthlyAmount
+                    monthlyAmount: try Money(valorReal: draft.monthlyAmount)
                 )
             }
 
             let benefits = try command.socialBenefits.map { draft in
                 try SocialBenefit(
                     benefitName: draft.benefitName,
-                    amount: draft.amount,
+                    amount: try Money(valorReal: draft.amount),
                     beneficiaryId: try PersonId(draft.beneficiaryId)
                 )
             }
@@ -59,7 +63,8 @@ public actor UpdateWorkAndIncomeCommandHandler: UpdateWorkAndIncomeUseCase {
 
             // 6. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
+            // 7. ADR-025 DUAL-WRITE.
+            try await assessmentRepository.dualWriteUpsert(PatientAssessmentBuilder.from(patient))
 
         } catch {
             throw mapError(error, patientId: command.patientId)

@@ -121,35 +121,92 @@ public struct AppError: Error, Sendable, Equatable {
     }
 }
 
-/// Helper para permitir que dicionários de contexto sejam Sendable e armazenem valores diversos.
-public struct AnySendable: @unchecked Sendable, Codable {
-    public let value: Any
-    
+/// Helper para permitir que dicionários de contexto sejam Sendable e
+/// armazenem valores diversos.
+///
+/// **ADR-018 — Banimento de `@unchecked Sendable` em estruturas de fronteira.**
+/// Pré-fix era `struct AnySendable: @unchecked Sendable` armazenando `Any`.
+/// `@unchecked` desliga a verificação do compilador; `Any` pode armazenar
+/// qualquer coisa (incluindo classes mutáveis não-thread-safe). O contrato
+/// `Sendable` estava sendo prometido sem verificação real.
+///
+/// Pós-fix: enum fechado com cases tipados — Sendable de verdade. `init(_:Any)`
+/// e `value: Any` getter mantidos para back-compat com 24 handlers que ainda
+/// usam o pattern `context.mapValues { AnySendable($0) }`. A migração desses
+/// handlers para usar cases tipados explicitamente fica como melhoria
+/// incremental — o invariante "Sendable verdadeiro" já está garantido.
+public enum AnySendable: Sendable, Codable, Equatable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case array([AnySendable])
+    case object([String: AnySendable])
+    case null
+
+    /// Construtor best-effort que mapeia `Any` para um case fechado.
+    /// Mantido para back-compat com call sites de Application que passam
+    /// `context.mapValues { AnySendable($0) }`.
+    /// Valores não suportados (UUID, Date, etc.) viram `.string("\(value)")`.
     public init(_ value: Any) {
-        self.value = value
+        switch value {
+        case let v as String: self = .string(v)
+        case let v as Bool: self = .bool(v)
+        case let v as Int: self = .int(v)
+        case let v as Double: self = .double(v)
+        case let v as [Any]: self = .array(v.map { AnySendable($0) })
+        case let v as [String: Any]: self = .object(v.mapValues { AnySendable($0) })
+        case let v as AnySendable: self = v
+        case is NSNull: self = .null
+        default: self = .string("\(value)")
+        }
+    }
+
+    /// Getter de back-compat: retorna o valor como `Any` para call sites
+    /// que ainda inspecionam `.value` direto.
+    public var value: Any {
+        switch self {
+        case .string(let v): return v
+        case .int(let v): return v
+        case .double(let v): return v
+        case .bool(let v): return v
+        case .array(let v): return v.map(\.value)
+        case .object(let v): return v.mapValues(\.value)
+        case .null: return NSNull()
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        if let encodable = value as? any Encodable {
-            try encodable.encode(to: encoder)
-        } else {
-            try container.encode("\(value)")
+        switch self {
+        case .string(let v): try container.encode(v)
+        case .int(let v): try container.encode(v)
+        case .double(let v): try container.encode(v)
+        case .bool(let v): try container.encode(v)
+        case .array(let v): try container.encode(v)
+        case .object(let v): try container.encode(v)
+        case .null: try container.encodeNil()
         }
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        if let stringValue = try? container.decode(String.self) {
-            self.value = stringValue
-        } else if let intValue = try? container.decode(Int.self) {
-            self.value = intValue
-        } else if let boolValue = try? container.decode(Bool.self) {
-            self.value = boolValue
-        } else if let dictValue = try? container.decode([String: AnySendable].self) {
-            self.value = dictValue
+        if container.decodeNil() {
+            self = .null
+        } else if let v = try? container.decode(Bool.self) {
+            self = .bool(v)
+        } else if let v = try? container.decode(Int.self) {
+            self = .int(v)
+        } else if let v = try? container.decode(Double.self) {
+            self = .double(v)
+        } else if let v = try? container.decode(String.self) {
+            self = .string(v)
+        } else if let v = try? container.decode([AnySendable].self) {
+            self = .array(v)
+        } else if let v = try? container.decode([String: AnySendable].self) {
+            self = .object(v)
         } else {
-            self.value = "unknown"
+            self = .null
         }
     }
 }

@@ -3,18 +3,15 @@ import Foundation
 /// Implementação do serviço Maestro para registro de novos pacientes.
 public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     private let lookupValidator: any LookupValidating
     private let personValidator: (any PersonExistenceValidating)?
 
     public init(
         repository: any PatientRepository,
-        eventBus: any EventBus,
         lookupValidator: any LookupValidating,
         personValidator: (any PersonExistenceValidating)? = nil
     ) {
         self.repository = repository
-        self.eventBus = eventBus
         self.lookupValidator = lookupValidator
         self.personValidator = personValidator
     }
@@ -95,11 +92,17 @@ public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
                 )
             }
 
-            // 6. PersonId Validation (people-context)
+            // 6. PersonId Validation (people-context) — tri-state ADR-011
             if let validator = personValidator {
-                let personExists = try await validator.exists(personId: personId)
-                if !personExists {
+                switch await validator.validate(personId: personId, bearer: command.bearer) {
+                case .exists:
+                    break  // OK, prossegue
+                case .notFound:
                     throw RegisterPatientError.personIdNotFoundInPeopleContext(command.personId)
+                case .unknown(let reason):
+                    // S-C1 fail-secure: upstream indisponível bloqueia registro
+                    // com HTTP 503 — operador retenta, NÃO passa silencioso.
+                    throw RegisterPatientError.personValidationUnavailable(reason: reason)
                 }
             }
 
@@ -154,7 +157,6 @@ public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
 
             // 11. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
 
             return patient.id.description
 

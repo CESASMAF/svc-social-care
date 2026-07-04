@@ -26,12 +26,11 @@ struct DischargePatientTests {
     @Test("Deve desligar paciente ativo com sucesso")
     func successfulDischarge() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         try await handler.handle(Self.makeCommand(
@@ -46,19 +45,18 @@ struct DischargePatientTests {
         let saveCount = await repo.saveCallCount
         #expect(saveCount == 1)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve desligar paciente com reason=other e notes validas")
     func successfulDischargeWithOtherReason() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         try await handler.handle(Self.makeCommand(
@@ -76,19 +74,18 @@ struct DischargePatientTests {
     @Test("Deve publicar evento apos persistencia")
     func eventPublishedAfterPersistence() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         try await handler.handle(Self.makeCommand(
             patientId: patient.id.description
         ))
 
-        let lastEvent = await bus.lastEvent()
+        let lastEvent = await repo.publishedEvents.last
         #expect(lastEvent is PatientDischargedEvent)
     }
 
@@ -97,10 +94,9 @@ struct DischargePatientTests {
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         let nonExistentId = PatientId().description
@@ -111,14 +107,13 @@ struct DischargePatientTests {
             ))
         }
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount == 0)
     }
 
     @Test("Deve falhar quando paciente ja esta desligado")
     func alreadyDischarged() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         var patient = try PatientFixture.createMinimalActive()
         try patient.discharge(
             reason: .caseObjectiveAchieved,
@@ -129,7 +124,7 @@ struct DischargePatientTests {
         await repo.seed(patient)
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: DischargePatientError.self) {
@@ -142,10 +137,9 @@ struct DischargePatientTests {
     @Test("Deve falhar com formato de patientId invalido")
     func invalidPatientIdFormat() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: DischargePatientError.self) {
@@ -158,12 +152,11 @@ struct DischargePatientTests {
     @Test("Deve falhar com razao de desligamento invalida")
     func invalidReason() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: DischargePatientError.self) {
@@ -177,12 +170,11 @@ struct DischargePatientTests {
     @Test("Deve falhar quando reason=other sem notes")
     func otherReasonWithoutNotes() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         await #expect(throws: DischargePatientError.self) {
@@ -200,12 +192,11 @@ struct DischargePatientTests {
     @Test("Deve falhar quando notes excede 1000 caracteres")
     func notesExceedMaxLength() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let handler = DischargePatientCommandHandler(
-            repository: repo, eventBus: bus
+            repository: repo
         )
 
         let longNotes = String(repeating: "z", count: 1001)

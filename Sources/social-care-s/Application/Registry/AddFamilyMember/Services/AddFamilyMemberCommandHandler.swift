@@ -3,12 +3,10 @@ import Foundation
 /// Implementação do serviço Maestro para adicionar novos membros à família de um paciente.
 public actor AddFamilyMemberCommandHandler: AddFamilyMemberUseCase {
     private let patientRepository: any PatientRepository
-    private let eventBus: any EventBus
     private let lookupValidator: any LookupValidating
 
-    public init(patientRepository: any PatientRepository, eventBus: any EventBus, lookupValidator: any LookupValidating) {
+    public init(patientRepository: any PatientRepository, lookupValidator: any LookupValidating) {
         self.patientRepository = patientRepository
-        self.eventBus = eventBus
         self.lookupValidator = lookupValidator
     }
 
@@ -36,7 +34,15 @@ public actor AddFamilyMemberCommandHandler: AddFamilyMemberUseCase {
             }
 
             // 5. Criação da Entidade de Domínio (Member)
-            let docs = command.requiredDocuments.compactMap { RequiredDocument(rawValue: $0) }
+            // ADR-020: `try map` em vez de `compactMap`. Valor inválido (typo,
+            // case errado, novo case não suportado) lança erro tipado em vez
+            // de silenciar — cliente recebe 422 com `invalidValue`.
+            let docs = try command.requiredDocuments.map { raw in
+                guard let doc = RequiredDocument(rawValue: raw) else {
+                    throw AddFamilyMemberError.invalidRequiredDocument(raw)
+                }
+                return doc
+            }
             let member = FamilyMember(
                 personId: memberPersonId,
                 relationshipId: relationshipId,
@@ -53,7 +59,6 @@ public actor AddFamilyMemberCommandHandler: AddFamilyMemberUseCase {
 
             // 7. Persistência e Publicação de Eventos
             try await patientRepository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
 
         } catch {
             throw mapError(error)

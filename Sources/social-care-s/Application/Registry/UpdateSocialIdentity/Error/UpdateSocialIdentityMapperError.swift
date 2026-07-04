@@ -3,6 +3,10 @@ import Foundation
 extension UpdateSocialIdentityCommandHandler {
     public func mapError(_ error: Error, patientId: String? = nil) -> UpdateSocialIdentityError {
         if let e = error as? UpdateSocialIdentityError { return e }
+        // ADR-010: PersistenceConflictError universal — fallback preserva detail.
+        if let conflict = error as? PersistenceConflictError {
+            return .persistenceMappingFailure(issues: [String(describing: conflict)])
+        }
 
         if let e = error as? SocialIdentityError {
             switch e {

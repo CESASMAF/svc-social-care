@@ -7,23 +7,21 @@ struct UpdateWorkAndIncomeTests {
 
     private func makeHandler(
         repo: InMemoryPatientRepository,
-        bus: InMemoryEventBus,
         lookup: any LookupValidating = AllowAllLookupValidator()
     ) -> UpdateWorkAndIncomeCommandHandler {
-        UpdateWorkAndIncomeCommandHandler(repository: repo, eventBus: bus, lookupValidator: lookup)
+        UpdateWorkAndIncomeCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: lookup)
     }
 
     @Test("Deve atualizar trabalho e renda com sucesso")
     func successfulUpdate() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
         let memberId = patient.personId.description
         let occId = UUID().uuidString
 
-        let handler = makeHandler(repo: repo, bus: bus)
+        let handler = makeHandler(repo: repo)
 
         try await handler.handle(UpdateWorkAndIncomeCommand(
             patientId: patient.id.description,
@@ -43,19 +41,18 @@ struct UpdateWorkAndIncomeTests {
         #expect(saved?.workAndIncome?.socialBenefits.count == 1)
         #expect(saved?.workAndIncome?.hasRetiredMembers == false)
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount >= 1)
     }
 
     @Test("Deve falhar com lookup invalido")
     func invalidLookup() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator()
         let patient = try PatientFixture.createMinimalActive()
         await repo.seed(patient)
 
-        let handler = UpdateWorkAndIncomeCommandHandler(repository: repo, eventBus: bus, lookupValidator: lookup)
+        let handler = UpdateWorkAndIncomeCommandHandler(repository: repo, assessmentRepository: InMemoryPatientAssessmentRepository(), lookupValidator: lookup)
 
         await #expect(throws: UpdateWorkAndIncomeError.self) {
             try await handler.handle(UpdateWorkAndIncomeCommand(
@@ -71,15 +68,14 @@ struct UpdateWorkAndIncomeTests {
             ))
         }
 
-        let eventCount = await bus.eventCount()
+        let eventCount = await repo.publishedEvents.count
         #expect(eventCount == 0)
     }
 
     @Test("Deve falhar quando paciente nao encontrado")
     func patientNotFound() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = makeHandler(repo: repo, bus: bus)
+        let handler = makeHandler(repo: repo)
 
         await #expect(throws: UpdateWorkAndIncomeError.self) {
             try await handler.handle(UpdateWorkAndIncomeCommand(
@@ -95,8 +91,7 @@ struct UpdateWorkAndIncomeTests {
     @Test("Actor isolation: atualizacoes concorrentes em patients distintos")
     func concurrentUpdates() async throws {
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
-        let handler = makeHandler(repo: repo, bus: bus)
+        let handler = makeHandler(repo: repo)
 
         let p1 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)
         let p2 = try PatientFixture.createMinimalActive(personId: UUID().uuidString)

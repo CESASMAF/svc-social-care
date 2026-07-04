@@ -123,6 +123,11 @@ public struct RegisterPatientCommand: ResultCommand {
     public let prRelationshipId: String
     public let actorId: String
 
+    /// JWT do request original encaminhado para validators outbound
+    /// (ADR-023 / ADR-011). `nil` em contextos não-autenticados
+    /// (cron, integração interna, testes).
+    public let bearer: String?
+
     public init(
         personId: String,
         initialDiagnoses: [DiagnosisDraft],
@@ -131,7 +136,8 @@ public struct RegisterPatientCommand: ResultCommand {
         address: AddressDraft? = nil,
         socialIdentity: SocialIdentityDraft? = nil,
         prRelationshipId: String,
-        actorId: String
+        actorId: String,
+        bearer: String? = nil
     ) {
         self.personId = personId
         self.initialDiagnoses = initialDiagnoses
@@ -141,5 +147,6 @@ public struct RegisterPatientCommand: ResultCommand {
         self.socialIdentity = socialIdentity
         self.prRelationshipId = prRelationshipId
         self.actorId = actorId
+        self.bearer = bearer
     }
 }

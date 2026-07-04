@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "acdg-reference-network": {
+      "source": {
+        "source": "directory",
+        "path": "../infra/reference-network"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "acdg-ref@acdg-reference-network": true
+  },
+  "permissions": {
+    "allow": [
+      "Read(../infra/reference/**)",
+      "Read(../web/handbook/reference/**)"
+    ]
+  }
+}

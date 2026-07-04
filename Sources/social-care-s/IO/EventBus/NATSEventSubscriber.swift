@@ -35,7 +35,7 @@ public actor NATSEventSubscriber {
             do {
                 try await connectAndListen()
             } catch {
-                logger.error("NATS subscriber error: \(error) — reconnecting in 5s")
+                logger.error("NATS subscriber error — reconnecting in 5s", metadata: LogSanitizer.metadata(for: error))
             }
             try? await Task.sleep(for: .seconds(5))
         }
@@ -115,7 +115,7 @@ private final class NATSMessageHandler: ChannelInboundHandler, @unchecked Sendab
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        logger.error("Channel error: \(error)")
+        logger.error("Channel error", metadata: LogSanitizer.metadata(for: error))
         context.close(promise: nil)
     }
 

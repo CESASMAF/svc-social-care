@@ -2,12 +2,16 @@ import Foundation
 
 public actor UpdateEducationalStatusCommandHandler: UpdateEducationalStatusUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
+    private let assessmentRepository: any PatientAssessmentRepository
     private let lookupValidator: any LookupValidating
 
-    public init(repository: any PatientRepository, eventBus: any EventBus, lookupValidator: any LookupValidating) {
+    public init(
+        repository: any PatientRepository,
+        assessmentRepository: any PatientAssessmentRepository,
+        lookupValidator: any LookupValidating
+    ) {
         self.repository = repository
-        self.eventBus = eventBus
+        self.assessmentRepository = assessmentRepository
         self.lookupValidator = lookupValidator
     }
 
@@ -65,7 +69,8 @@ public actor UpdateEducationalStatusCommandHandler: UpdateEducationalStatusUseCa
 
             // 6. Persistence & Events
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
+            // 7. ADR-025 DUAL-WRITE.
+            try await assessmentRepository.dualWriteUpsert(PatientAssessmentBuilder.from(patient))
 
         } catch {
             throw mapError(error, patientId: command.patientId)

@@ -40,75 +40,77 @@ struct ServiceContainer: Sendable {
     init(db: any SQLDatabase, personValidator: (any PersonExistenceValidating)? = nil) {
         self.db = db
         let repository = SQLKitPatientRepository(db: db)
-        let eventBus = OutboxEventBus()
         let lookup = SQLKitLookupRepository(db: db)
+        // ADR-024/025 — DUAL-WRITE: handlers de assessment escrevem
+        // também no novo agregado.
+        let assessmentRepo: any PatientAssessmentRepository = SQLKitPatientAssessmentRepository(db: db)
 
         self.patientRepository = repository
         self.lookupValidator = lookup
 
         self.registerPatient = RegisterPatientCommandHandler(
-            repository: repository, eventBus: eventBus, lookupValidator: lookup,
+            repository: repository, lookupValidator: lookup,
             personValidator: personValidator
         )
         self.addFamilyMember = AddFamilyMemberCommandHandler(
-            patientRepository: repository, eventBus: eventBus, lookupValidator: lookup
+            patientRepository: repository, lookupValidator: lookup
         )
         self.removeFamilyMember = RemoveFamilyMemberCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.assignPrimaryCaregiver = AssignPrimaryCaregiverCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.updateSocialIdentity = UpdateSocialIdentityCommandHandler(
-            repository: repository, lookupValidator: lookup, eventBus: eventBus
+            repository: repository, lookupValidator: lookup
         )
         self.updateHousingCondition = UpdateHousingConditionCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository, assessmentRepository: assessmentRepo
         )
         self.updateSocioEconomicSituation = UpdateSocioEconomicSituationCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository, assessmentRepository: assessmentRepo
         )
         self.updateWorkAndIncome = UpdateWorkAndIncomeCommandHandler(
-            repository: repository, eventBus: eventBus, lookupValidator: lookup
+            repository: repository, assessmentRepository: assessmentRepo, lookupValidator: lookup
         )
         self.updateEducationalStatus = UpdateEducationalStatusCommandHandler(
-            repository: repository, eventBus: eventBus, lookupValidator: lookup
+            repository: repository, assessmentRepository: assessmentRepo, lookupValidator: lookup
         )
         self.updateHealthStatus = UpdateHealthStatusCommandHandler(
-            repository: repository, eventBus: eventBus, lookupValidator: lookup
+            repository: repository, assessmentRepository: assessmentRepo, lookupValidator: lookup
         )
         self.updateCommunitySupportNetwork = UpdateCommunitySupportNetworkCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository, assessmentRepository: assessmentRepo
         )
         self.updateSocialHealthSummary = UpdateSocialHealthSummaryCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository, assessmentRepository: assessmentRepo
         )
         self.updatePlacementHistory = UpdatePlacementHistoryCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.reportRightsViolation = ReportRightsViolationCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.createReferral = CreateReferralCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.registerAppointment = RegisterAppointmentCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.registerIntakeInfo = RegisterIntakeInfoCommandHandler(
-            repository: repository, eventBus: eventBus, lookupValidator: lookup
+            repository: repository, lookupValidator: lookup
         )
         self.dischargePatient = DischargePatientCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.readmitPatient = ReadmitPatientCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.admitPatient = AdmitPatientCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.withdrawFromWaitlist = WithdrawFromWaitlistCommandHandler(
-            repository: repository, eventBus: eventBus
+            repository: repository
         )
         self.listPatients = ListPatientsQueryHandler(repository: repository)
 
