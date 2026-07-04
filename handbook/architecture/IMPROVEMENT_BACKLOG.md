@@ -7,8 +7,9 @@
 > com PostgreSQL/Outbox como o `social-care`. As que sobreviveram ao filtro
 > estão promovidas a "proposta" aqui.
 >
-> Data: 2026-05-14. Revisitar quando G1-G17 do `IMPLEMENTATION_PLAN.md`
-> fecharem.
+> Data: 2026-05-14. **Reconciliado 2026-07-04 (v0.15.0)** — ver bloco
+> "STATUS DE RECONCILIACAO" logo abaixo do resumo executivo para o veredito
+> atual de cada proposta.
 
 ---
 
@@ -32,6 +33,26 @@
 
 **Promovidas:** 05, 09, 11, 12 (+ 01 e 10 com semantics adaptada).
 **Skipped:** 02, 03, 04, 06, 07, 08, 13.
+
+---
+
+## STATUS DE RECONCILIACAO — 2026-07-04 (v0.15.0)
+
+> Reconciliado contra o codigo. As propostas promovidas mudaram de status desde
+> a criacao (2026-05-14). Veredito por item:
+
+| # | Proposta | Status 2026-07 | Evidencia no codigo |
+|---:|---|:-:|---|
+| 01 | Persist offset → Outbox `processed_at` + `FOR UPDATE SKIP LOCKED` | ✅ **FEITO** | ADR-013; `SQLKitOutboxRelay` usa `FOR UPDATE SKIP LOCKED` + `processed_at`. |
+| 05 | Schema versioning de `DomainEvent` | ⚠️ **PARCIAL** | Eventos **externos** consumidos (`PersonDeletedEvent`, `PersonRegisteredEvent`) ja carregam `schemaVersion`. O protocolo `DomainEvent` **interno** ainda nao expoe `schemaVersion` — abrir antes do 1o subscriber externo do Outbox. |
+| 09 | Library target `ACDGKit` | ❌ **PENDENTE** | `Package.swift` so tem `executableTarget`. Preventivo — adotar quando `people-context` nascer. |
+| 10 | Encryption at rest (LGPD) — ADR | ❌ **PENDENTE** | Nenhum ADR de encryption at rest criado. **Nota:** erasure LGPD (ADR-039, `AnonymizePatientPII`) foi entregue, mas e outra coisa (apagar PII sob demanda ≠ cifrar em repouso). Criar ADR antes do 1o PROD com dado real. |
+| 11 | Metricas Prometheus `/metrics` | ❌ **PENDENTE** | Sem `swift-metrics`/`swift-prometheus`, sem rota `/metrics`. Observabilidade ainda so via `req.logger`. |
+| 12 | Retry policy + DLQ no Outbox | ⚠️ **PARCIAL** | `FOR UPDATE SKIP LOCKED` (ADR-013) feito. Colunas `attempts`/`max_attempts`/`next_attempt_at`/`dlq_at` **nao existem** — retry com backoff e dead-letter continuam abertos. |
+
+**Sobrou aberto:** #05 (fechar a parte interna), #09, #10, #11, #12 (parte DLQ).
+**Fechado desde 2026-05-14:** #01. Os gaps G1-G17 citados no rodape ja fecharam
+majoritariamente (ver `IMPLEMENTATION_PLAN.md`, bloco STATUS) — resta G10 e G14.
 
 ---
 

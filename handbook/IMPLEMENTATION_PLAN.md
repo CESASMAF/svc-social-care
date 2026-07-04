@@ -8,6 +8,57 @@
 
 ---
 
+## STATUS DE RECONCILIACAO — 2026-07-04 (v0.15.0)
+
+> **Este plano foi escrito para o estado ~v0.5 e ficou defasado.** Reconciliado
+> com o codigo em **2026-07-04 (tag `v0.15.0`)**. Os numeros originais das secoes
+> abaixo foram corrigidos in-place; este bloco resume o delta e a fonte de verdade
+> atual passa a ser o **codigo** (contagens medidas, nao estimadas).
+
+| Metrica | Plano original (~v0.5) | Real medido (v0.15.0) |
+|---|---|---|
+| Migrations | 7 | **21** (+ runner + protocolo) |
+| Arquivos de teste | 32 | **87** |
+| Testes (`@Test`) | 135 | **474** |
+| Suites (`@Suite`) | 38 | **87** |
+| Use cases de escrita (pastas `Command/`) | 17 | **25** |
+| Rotas HTTP | 23 | **34** |
+| Controllers | 6 | 6 |
+| ADRs em disco | 1 (ADR-001) | **26** (001-025 + 039) + 3 OIDC a materializar (027/029/031) |
+
+**Entregue alem do plano original** (nao previsto nas fases 0-9 abaixo):
+
+- **Patient lifecycle completo** (Registry): `AdmitPatient`, `DischargePatient`,
+  `ReadmitPatient`, `WithdrawFromWaitlist`, `LinkPersonId` + VOs `PatientStatus`,
+  `DischargeInfo/Reason`, `WithdrawInfo/Reason`. Rotas `POST /patients/:id/{admit,discharge,readmit,withdraw}`.
+  Ver `handbook/features/PATIENT_LIFECYCLE.md`.
+- **Erasure LGPD** (`AnonymizePatientPII`, ADR-039): anonimiza PII ao consumir
+  `people.person.deleted`.
+- **Bounded context `Configuration`** inteiro: fluxo de solicitacao/aprovacao de
+  lookups (`LookupRequest` create/approve/reject + `LookupAdmin` create/update item).
+- **Decomposicao do god aggregate** `Patient` → `PatientAssessment` (ADR-019/024/025)
+  com `PatientAssessmentRepository` e migration dedicada.
+- **OIDC multi-issuer** Zitadel→Authentik (`OIDCJWTPayload` substitui `ZitadelJWTPayload`,
+  envs `OIDC_ISSUERS/JWKS_URLS/AUDIENCES` em CSV; ADRs 027/029/031).
+- **Kernel** ganhou `CNS` (Cartao Nacional de Saude) e `Money` (VO, ADR-010).
+- **Hardening de seguranca** (Fase 2 do pipeline de remediacao): optimistic locking,
+  PKs/FKs declaradas, `Money` VO, security headers, PeopleContext fail-secure, Outbox
+  `FOR UPDATE SKIP LOCKED` — ADRs 005-018.
+
+**Ainda genuinamente aberto** (verificado no codigo, nao no doc):
+
+- **G10** — testes de integracao HTTP end-to-end (VaporTesting): 0 `app.test`. A
+  cobertura ≥95% e atingida por outros caminhos (CI verde), entao e lacuna
+  *arquitetural*, nao bloqueio de gate.
+- **G14** — rate limiting: ausente.
+- **#11 backlog** — metricas Prometheus `/metrics`: ausente.
+- **#12 backlog** — retry + DLQ dedicado no Outbox (`attempts`/`dlq_at`): o
+  `FOR UPDATE SKIP LOCKED` (ADR-013) existe; a parte de dead-letter nao.
+- **#09 backlog** — target `ACDGKit` reutilizavel: so ha `executableTarget`
+  (preventivo, sem urgencia).
+
+---
+
 ## Indice
 
 1. [Diagnostico: O Que Ja Existe](#1-diagnostico-o-que-ja-existe)
@@ -32,24 +83,24 @@
 
 | Camada | Status | Detalhes |
 |--------|--------|----------|
-| **Domain/Kernel** | COMPLETO | 10 VOs: CPF, NIS, CEP, RG, Address, PersonId, PatientId, ProfessionalId, LookupId, TimeStamp. Todos com validacao no init e erros tipados. |
+| **Domain/Kernel** | COMPLETO | 12 VOs: CPF, NIS, CEP, RGDocument, **CNS**, **Money** (ADR-010), Address, PersonId, PatientId, ProfessionalId, LookupId, TimeStamp. Todos com validacao no init e erros tipados. |
 | **Domain/Registry** | COMPLETO | Agregado Patient (struct, EventSourced), FamilyMember entity, PatientEvents (17 eventos com actorId, 10 com before/after diff). Extensions: Lifecycle, Family, Assessments, Interventions. |
 | **Domain/Care** | COMPLETO | SocialCareAppointment, AppointmentId, Diagnosis, ICDCode, IngressInfo. |
 | **Domain/Protection** | COMPLETO | Referral (com state machine), RightsViolationReport, AcolhimentoHistory, ReferralId, ViolationReportId. |
 | **Domain/Assessment** | COMPLETO | HousingCondition, SocioEconomicSituation, WorkAndIncome, EducationalStatus, HealthStatus, CommunitySupportNetwork, SocialHealthSummary, SocialBenefit, SocialBenefitsCollection. Analytics: Financial, Housing, Education. |
-| **Application Services** | 17 SERVICOS | RegisterPatient, AddFamilyMember, RemoveFamilyMember, AssignPrimaryCaregiver, UpdateSocialIdentity, UpdateHousingCondition, UpdateSocioEconomicSituation, UpdateWorkAndIncome, UpdateEducationalStatus, UpdateHealthStatus, UpdateCommunitySupportNetwork, UpdateSocialHealthSummary, UpdatePlacementHistory, CreateReferral, ReportRightsViolation, RegisterAppointment, RegisterIntakeInfo. Cada um com Command (actorId) + UseCase protocol + Service + Errors. |
+| **Application Services** | 25 SERVICOS | **Registry (11):** RegisterPatient, AddFamilyMember, RemoveFamilyMember, AssignPrimaryCaregiver, UpdateSocialIdentity, AdmitPatient, DischargePatient, ReadmitPatient, WithdrawFromWaitlist, LinkPersonId, AnonymizePatientPII. **Assessment (7):** UpdateHousingCondition, UpdateSocioEconomicSituation, UpdateWorkAndIncome, UpdateEducationalStatus, UpdateHealthStatus, UpdateCommunitySupportNetwork, UpdateSocialHealthSummary. **Care (2):** RegisterAppointment, RegisterIntakeInfo. **Protection (3):** CreateReferral, ReportRightsViolation, UpdatePlacementHistory. **Configuration (5):** LookupRequest (create/approve/reject), LookupAdmin (create/update item). Cada um com Command (actorId) + UseCase protocol + Service + Errors. |
 | **Application Query** | COMPLETO | GetPatientByIdQueryHandler, GetPatientByPersonIdQueryHandler, PatientRegistrationService (orquestrador de cadastro). |
-| **HTTP Controllers** | 6 CONTROLLERS | PatientController (8 rotas incl. audit trail com filtro eventType), AssessmentController (7 rotas + validacao metadata-driven), ProtectionController (3 rotas + validacao metadata-driven), CareController (2 rotas), LookupController (1 rota), HealthController (2 rotas: /health + /ready). Todos com JWT auth + RBAC por role. |
+| **HTTP Controllers** | 6 CONTROLLERS / 34 ROTAS | PatientController (13 rotas: CRU + audit trail com filtro eventType + lifecycle admit/discharge/readmit/withdraw), AssessmentController (7 rotas + validacao metadata-driven), ProtectionController (3 rotas + validacao metadata-driven), CareController (2 rotas), LookupController (7 rotas: list dominios + lookup-requests create/list/approve/reject + admin create/update item), HealthController (2 rotas: /health + /ready). Todos com JWT auth (OIDC multi-issuer) + RBAC por role. |
 | **HTTP DTOs** | COMPLETO | RequestDTOs.swift (17 request structs com `toCommand(actorId:)`, campos metadata opcionais), ResponseDTOs.swift (response structs com `computedAnalytics`, `StandardResponse<T>` wrapper, AuditTrailEntryResponse com actorId). |
 | **HTTP Middleware** | COMPLETO | AppErrorMiddleware (erro global), JWTAuthMiddleware (validacao JWKS via Zitadel), RoleGuardMiddleware (RBAC por grupo de rotas). |
 | **HTTP Extensions** | COMPLETO | Request+ActorId.swift (`extractActorId()` via JWT sub claim), AuthenticatedUser (model + Request storage). |
 | **HTTP Validation** | COMPLETO | MetadataValidator (validacao dinamica contra flags em lookup tables) + CrossValidator (validacoes cruzadas Saude/Sexo e Acolhimento/Idade). |
 | **Persistence** | COMPLETO | SQLKitPatientRepository (save com transacao SQL, find, exists), SQLKitLookupRepository, PatientDatabaseMapper (normalizado), PatientDatabaseModels (colunas diretas + 8 tabelas filhas). |
-| **Migrations** | 7 MIGRATIONS | CreateInitialSchema, AddRegistrationFields, CreateLookupTables, AddV2AssessmentFields, AddPerformanceIndexes, NormalizeSchema, CreateAuditTrail. MigrationRunner com tabela `_migrations`. |
+| **Migrations** | 21 MIGRATIONS | Alem das 7 originais (initial, registration, lookups, v2, indexes, normalize, audit): ConvertJsonbToText, RestoreJsonbAndTemporalTypes (ADR-022), CreateLookupRequests, AddCNSAndHomeless, AddUniqueCpfConstraint, AddPatientDischarge, AddWaitlistSupport, AddPrimaryKeysForFamilyMembersAndDiagnoses (ADR-007), DeclareLookupFKs (ADR-008), TypeRelationshipAsUUID, AuditTrailDistinctId (ADR-016), CreatePatientAssessmentsTable (ADR-024), FamilyMemberRequiredDocumentsTable (ADR-020), AddCreatedUpdatedAtToRootTables (ADR-023). `SQLKitMigrationRunner` com tabela `_migrations`. |
 | **Outbox** | FUNCIONAL | OutboxEventBus (Transactional Outbox — eventos escritos na mesma transacao do aggregate), SQLKitOutboxRelay (polling + AsyncStream + audit trail + processed_at). |
 | **Event Registry** | COMPLETO | 17 eventos registrados no DomainEventRegistryBootstrap. |
 | **Audit Trail** | COMPLETO | Tabela audit_trail com actor_id, endpoint GET com filtro `?eventType=`, relay popula automaticamente. |
-| **Tests** | 32 ARQUIVOS | 135 testes em 38 suites. Domain (unit) + Application (actor-based com InMemory test doubles — todos os 17 UCs cobertos) + IO/AuditTrail (pipeline completo). |
+| **Tests** | 87 ARQUIVOS | 474 testes (`@Test`) em 87 suites. Domain/v2 (24) + Application (29 + 7 TestDoubles) + IO (AuditTrail + 3 Auth/OIDC) + **Regression/ (22 arquivos em 6 subpastas: Concurrency, DataIntegrity, DomainInvariants, ErrorMapping, EventPublication, Security)** — o suite de regressao do pipeline (T-001) foi materializado. |
 
 ### Principios Ja Estabelecidos
 
@@ -124,12 +175,19 @@ FASE 3: HTTP Layer (Vapor & Form Integration)          ████████�
 FASE 4: Persistencia Robusta (v2.0 fields)             ██████████ COMPLETO (normalizado)
 FASE 5: Outbox Relay Real                              ██████████ COMPLETO (+ audit trail)
 FASE 6: Read Side / Queries                            ██████████ COMPLETO (+ calculos automaticos)
-FASE 7: Cross-Cutting (Error, Health, Auth)            ██████████ COMPLETO (health, shutdown, JWT/RBAC, Zitadel OIDC)
-FASE 8: Testes (unit + integration + 95%)              █████████░ ~85% (32 arquivos, 135 testes, falta integration HTTP)
+FASE 7: Cross-Cutting (Error, Health, Auth)            ██████████ COMPLETO (health, shutdown, JWT/RBAC, OIDC multi-issuer)
+FASE 8: Testes (unit + integration + 95%)              █████████░ ~90% (87 arq, 474 testes, gate 95% verde; falta integration HTTP — G10)
 FASE 9: Production Readiness                           ██████████ COMPLETO (Dockerfile, compose, CI, README, CHANGELOG)
                                                        ─────────────────
-                                                       Progresso: ~98%
+                                                       Progresso: ~99% (v0.15.0)
 ```
+
+> **Alem das 9 fases acima**, o serviço executou o **Pipeline de Remediacao**
+> (`handbook/reports/REMEDIATION_PIPELINE_2026_05_14.md`, 38 tickets T-001..T-038):
+> Fases 0-4 concluidas (ADRs 004-025); Fases 5-6 parciais (T-028 cursor pagination
+> entregue em v0.7.0; UoW / LookupBatchValidator / naming ainda abertos). Mais as
+> evolucoes de produto listadas no bloco STATUS do topo (lifecycle, erasure LGPD,
+> Configuration BC, OIDC multi-issuer).
 
 ---
 
@@ -332,15 +390,17 @@ Todos retornados no campo `computedAnalytics` do `PatientResponse`:
 - [x] JWT Authentication (`JWTAuthMiddleware` — valida tokens via JWKS do Zitadel, skipa /health e /ready)
 - [x] RBAC (`RoleGuardMiddleware` — 3 roles: `social_worker` full CRUD, `owner` read-only, `admin` read-only + gestao)
 
-### 7.2 Autenticacao e Autorizacao (Zitadel OIDC)
+### 7.2 Autenticacao e Autorizacao (OIDC multi-issuer — ADR-027/029/031)
 
-**Identity Provider:** Zitadel (self-hosted, deploy via FluxCD HelmRelease no K3s)
+**Identity Providers:** Zitadel (legado) + **Authentik** (migracao em curso — ADR-027).
+Ambos self-hosted, deploy via FluxCD no K3s.
 **Dominio:** `auth.acdgbrasil.com.br`
 **Flow:** Authorization Code + PKCE
+**Config:** `OIDC_JWKS_URLS`, `OIDC_ISSUERS`, `OIDC_AUDIENCES` (CSV), fallback legado `JWKS_URL`/`ZITADEL_*`.
 
 | Componente | Arquivo | Descricao |
 |------------|---------|-----------|
-| `ZitadelJWTPayload` | `IO/HTTP/Auth/ZitadelJWTPayload.swift` | Decodifica JWT com claim `urn:zitadel:iam:org:project:roles` |
+| `OIDCJWTPayload` | `IO/HTTP/Auth/OIDCJWTPayload.swift` | Payload agnostico de IdP (substitui `ZitadelJWTPayload`). Roles por precedencia `roles`→`groups`→`urn:zitadel:...` (ADR-029). `verify(using:)` valida iss/aud/exp/nbf via storage global fail-closed (ADR-031). |
 | `AuthenticatedUser` | `IO/HTTP/Auth/AuthenticatedUser.swift` | Model com userId + roles, armazenado no Request.storage |
 | `JWTAuthMiddleware` | `IO/HTTP/Middleware/JWTAuthMiddleware.swift` | Valida JWT via JWKS, popula authenticatedUser. Skipa /health e /ready |
 | `RoleGuardMiddleware` | `IO/HTTP/Middleware/RoleGuardMiddleware.swift` | Verifica se usuario tem role permitida para o grupo de rotas |
@@ -501,12 +561,12 @@ Quando TODOS os itens abaixo estiverem marcados, o microservico esta pronto para
 - [x] Analytics services (Financial, Housing, Education, FamilyAgeProfile)
 
 ### Application
-- [x] 17 use cases de escrita implementados (todos com actorId)
-- [x] 2 use cases de leitura implementados
-- [ ] Testes unitarios para TODOS os use cases
+- [x] 25 use cases de escrita implementados (todos com actorId) — inclui lifecycle, erasure LGPD e Configuration BC
+- [x] Use cases de leitura (GetPatientById, GetPatientByPersonId, ListPatients paginado)
+- [x] Testes unitarios para TODOS os use cases (Application: 29 arquivos)
 
 ### HTTP (I/O - Vapor)
-- [x] 6 Controllers com 23 rotas implementadas
+- [x] 6 Controllers com 34 rotas implementadas
 - [x] Padrao **CRU** rigoroso (Delete somente em family-members)
 - [x] `AppErrorMiddleware` global
 - [x] actorId via JWT `sub` claim em todas as mutations
@@ -520,14 +580,16 @@ Quando TODOS os itens abaixo estiverem marcados, o microservico esta pronto para
 - [x] Graceful shutdown (`GracefulShutdownHandler` — compativel com SIGTERM/K8s)
 - [x] CORS (resolvido no Caddy/VPS Gateway — decisao de infra)
 - [x] Request logging (Traefik access log + Vapor Logger)
-- [x] JWT Authentication (`JWTAuthMiddleware` — JWKS via Zitadel OIDC)
+- [x] JWT Authentication (`JWTAuthMiddleware` — OIDC multi-issuer, JWKS Zitadel + Authentik; ADR-027/029/031)
 - [x] RBAC Authorization (`RoleGuardMiddleware` — social_worker, owner, admin)
 
 ### Persistencia (I/O)
 - [x] Repository usando transacao SQL
 - [x] Migration runner com tabela `_migrations`
-- [x] Schema normalizado (JSONB -> colunas + tabelas filhas)
-- [x] 7 migrations (initial, registration, lookups, v2, indexes, normalize, audit)
+- [x] Schema normalizado (JSONB -> colunas + tabelas filhas; JSONB restaurado seletivamente — ADR-022)
+- [x] 21 migrations (7 originais + PKs, FKs, discharge, waitlist, CNS, assessments aggregate, audit distinct id, etc.)
+- [x] Optimistic locking via coluna `version` (ADR-005)
+- [x] PKs e FKs declaradas (ADR-006/007/008)
 - [x] Indices de performance
 - [x] Mapper atualizado com round-trip testado
 - [x] Lookup tables com metadata flags (exige_registro_nascimento, exige_cpf_falecido, exige_descricao)
@@ -541,10 +603,11 @@ Quando TODOS os itens abaixo estiverem marcados, o microservico esta pronto para
 - [x] Endpoint de consulta com filtro por eventType
 
 ### Testes
-- [x] Testes Application para todos os 17 UCs (Actor-based InMemory test doubles, 67 testes)
-- [x] Testes de audit trail (DomainEventRegistry, Outbox mapper, AuditTrailEntryResponse, round-trip — 10 testes)
-- [ ] Testes de integracao HTTP (VaporTesting)
-- [ ] Cobertura >= 95%
+- [x] Testes Application para todos os 25 UCs (Actor-based InMemory test doubles)
+- [x] Testes de audit trail (DomainEventRegistry, Outbox mapper, AuditTrailEntryResponse, round-trip)
+- [x] Suite de regressao (`Regression/`, 22 arquivos em 6 subpastas — pipeline T-001)
+- [x] Cobertura >= 95% (gate verde no CI)
+- [ ] Testes de integracao HTTP end-to-end (VaporTesting) — **G10, unica lacuna de testes**
 
 ### Producao
 - [x] Dockerfile
@@ -557,11 +620,18 @@ Quando TODOS os itens abaixo estiverem marcados, o microservico esta pronto para
 
 ---
 
-## Ordem de Execucao Recomendada (Itens Restantes)
+## Ordem de Execucao Recomendada (Itens Restantes — 2026-07-04)
 
 ```
-Prioridade 1:  Testes de integracao HTTP (VaporTesting)
-Prioridade 2:  Testes de Outbox/AuditTrail/ErrorMiddleware (MEDIA prioridade)
+Prioridade 1:  Testes de integracao HTTP end-to-end (VaporTesting) — G10
+Prioridade 2:  Metricas Prometheus /metrics (#11) + retry/DLQ no Outbox (#12)
+Prioridade 3:  Rate limiting (G14); target ACDGKit (#09, preventivo)
 ```
 
-> **Nota:** Progresso geral estimado em ~98%. As fases 0-7 e 9 estao completas (incluindo JWT auth e RBAC com Zitadel). Fase 8: todos os 17 UCs cobertos por testes Application (67 testes). Restam apenas testes de integracao HTTP e cobertura >= 95%.
+> **Nota (v0.15.0):** Progresso geral ~99%. Fases 0-9 completas; alem delas o
+> pipeline de remediacao (ADRs 004-025) e evolucoes de produto (lifecycle,
+> erasure LGPD, Configuration BC, OIDC multi-issuer). O gate de cobertura ≥95%
+> esta **verde no CI**. Itens genuinamente abertos estao no bloco STATUS do topo
+> — o principal e G10 (integracao HTTP), que e lacuna arquitetural e nao bloqueio
+> de gate. Fonte de verdade do progresso passa a ser o **codigo** (medido), nao
+> as estimativas historicas deste plano.
