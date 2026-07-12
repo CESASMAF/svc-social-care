@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "acdg-skills": {
+      "type": "http",
+      "url": "https://mcp-server.tailf5e6ca.ts.net:8443/acdg-skills/mcp"
+    },
+    "docker-docs": {
+      "type": "http",
+      "url": "https://mcp-server.tailf5e6ca.ts.net:8443/docker-docs/mcp"
+    },
+    "reverse-proxy": {
+      "type": "http",
+      "url": "https://mcp-server.tailf5e6ca.ts.net:8443/reverse-proxy/mcp"
+    },
+    "security": {
+      "type": "http",
+      "url": "https://mcp-server.tailf5e6ca.ts.net:8443/security/mcp"
+    }
+  }
+}
