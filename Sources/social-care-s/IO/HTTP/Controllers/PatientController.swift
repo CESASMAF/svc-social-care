@@ -5,20 +5,33 @@ struct PatientController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let patients = routes.grouped("api", "v1", "patients")
 
-        let read = patients.grouped(RoleGuardMiddleware("worker", "owner", "admin"))
+        // Defense-in-depth: RoleGuardMiddleware (decisão local) + CerbosGuardMiddleware
+        // (mesma decisão, versionada/auditável). O Cerbos é feature-flag (CERBOS_URL):
+        // sem ele, o CerbosGuard é pass-through. Ação representativa por grupo — o RBAC
+        // é idêntico p/ as rotas do mesmo grupo (ver cells/idp/config/cerbos/policies).
+        let read = patients.grouped(
+            RoleGuardMiddleware("worker", "owner", "admin"),
+            CerbosGuardMiddleware(resource: "patient", action: "read")
+        )
         read.get(use: list)
         read.get(":patientId", use: getById)
         read.get("by-person", ":personId", use: getByPersonId)
         read.get(":patientId", "audit-trail", use: getAuditTrail)
 
-        let write = patients.grouped(RoleGuardMiddleware("worker"))
+        let write = patients.grouped(
+            RoleGuardMiddleware("worker"),
+            CerbosGuardMiddleware(resource: "patient", action: "create")
+        )
         write.post(use: register)
         write.post(":patientId", "family-members", use: addFamilyMember)
         write.delete(":patientId", "family-members", ":memberId", use: removeFamilyMember)
         write.put(":patientId", "primary-caregiver", use: assignPrimaryCaregiver)
         write.put(":patientId", "social-identity", use: updateSocialIdentity)
 
-        let lifecycle = patients.grouped(RoleGuardMiddleware("worker", "admin"))
+        let lifecycle = patients.grouped(
+            RoleGuardMiddleware("worker", "admin"),
+            CerbosGuardMiddleware(resource: "patient", action: "admit")
+        )
         lifecycle.post(":patientId", "discharge", use: discharge)
         lifecycle.post(":patientId", "readmit", use: readmit)
         lifecycle.post(":patientId", "admit", use: admit)

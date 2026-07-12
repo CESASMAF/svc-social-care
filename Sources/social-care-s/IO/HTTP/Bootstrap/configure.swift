@@ -302,6 +302,18 @@ func configure(_ app: Application) async throws {
         }
     }
 
+    // MARK: - Cerbos (RBAC policy-as-code / PDP)
+    //
+    // Externaliza a decisão de RBAC (hoje no RoleGuardMiddleware) para políticas
+    // versionadas e auditáveis. Feature-flag por CERBOS_URL: sem ele, o
+    // CerbosGuardMiddleware é pass-through (RBAC segue só via RoleGuard).
+    if let cerbosURL = Environment.get("CERBOS_URL") {
+        app.cerbos = CerbosClient(baseURL: cerbosURL)
+        app.logger.info("Cerbos PDP ativo (\(cerbosURL)) — RBAC versionado (defense-in-depth)")
+    } else {
+        app.logger.info("CERBOS_URL não setado — RBAC apenas via RoleGuardMiddleware")
+    }
+
     // MARK: - Middleware
 
     // Limita o corpo das requisições — payloads grandes são vetor de DoS
