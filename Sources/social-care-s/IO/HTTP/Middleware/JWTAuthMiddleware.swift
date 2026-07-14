@@ -18,6 +18,16 @@ struct JWTAuthMiddleware: AsyncMiddleware {
             throw Abort(.unauthorized, reason: Self.unauthorizedReason)
         }
 
+        // Sem `Authorization: Bearer` → 401 ANTES de chamar request.jwt.verify.
+        // A lib vapor/jwt loga `logger.error("Request is missing JWT bearer header")`
+        // (Request+JWT.swift) em TODA tentativa anônima. Um acesso sem credencial é
+        // evento ESPERADO (não erro operacional), então respondemos aqui e mantemos
+        // o registro em `debug` — evita ruído de ERROR no log a cada 401.
+        guard request.headers.bearerAuthorization != nil else {
+            request.logger.debug("Requisição sem Bearer token — respondendo 401")
+            throw Abort(.unauthorized, reason: Self.unauthorizedReason)
+        }
+
         let payload: OIDCJWTPayload
         do {
             // Vapor JWT executa verify(using:) que ja valida iss/aud/exp/nbf
