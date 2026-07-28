@@ -5,20 +5,39 @@ struct PatientController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let patients = routes.grouped("api", "v1", "patients")
 
-        let read = patients.grouped(RoleGuardMiddleware("worker", "owner", "admin"))
+        // Defense-in-depth: RoleGuardMiddleware (decisão local) + CerbosGuardMiddleware
+        // (mesma decisão, versionada/auditável). O Cerbos é feature-flag (CERBOS_URL):
+        // sem ele, o CerbosGuard é pass-through.
+        //
+        // Ação REPRESENTATIVA por grupo: dentro de cada grupo a policy aplica a mesma
+        // regra a todas as rotas (leitura → worker|owner|admin; escrita cadastral →
+        // worker; ciclo de vida → worker|admin), então uma ação representa o grupo.
+        // As ações vêm de `PatientPolicyAction` — o Cerbos é *default deny*, e uma
+        // ação inexistente na policy viraria 403 silencioso em todas as rotas do
+        // grupo. Ver `infra:.../policies/social-care/patient.yaml`.
+        let read = patients.grouped(
+            RoleGuardMiddleware("worker", "owner", "admin"),
+            CerbosGuardMiddleware(patient: .list)
+        )
         read.get(use: list)
         read.get(":patientId", use: getById)
         read.get("by-person", ":personId", use: getByPersonId)
         read.get(":patientId", "audit-trail", use: getAuditTrail)
 
-        let write = patients.grouped(RoleGuardMiddleware("worker"))
+        let write = patients.grouped(
+            RoleGuardMiddleware("worker"),
+            CerbosGuardMiddleware(patient: .register)
+        )
         write.post(use: register)
         write.post(":patientId", "family-members", use: addFamilyMember)
         write.delete(":patientId", "family-members", ":memberId", use: removeFamilyMember)
         write.put(":patientId", "primary-caregiver", use: assignPrimaryCaregiver)
         write.put(":patientId", "social-identity", use: updateSocialIdentity)
 
-        let lifecycle = patients.grouped(RoleGuardMiddleware("worker", "admin"))
+        let lifecycle = patients.grouped(
+            RoleGuardMiddleware("worker", "admin"),
+            CerbosGuardMiddleware(patient: .admit)
+        )
         lifecycle.post(":patientId", "discharge", use: discharge)
         lifecycle.post(":patientId", "readmit", use: readmit)
         lifecycle.post(":patientId", "admit", use: admit)
