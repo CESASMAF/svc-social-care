@@ -15,9 +15,21 @@ struct CerbosGuardMiddleware: AsyncMiddleware {
     let resource: String
     let action: String
 
+    /// Init genérico — para recursos que ainda não têm enum de ações próprio.
+    ///
+    /// Prefira o init tipado quando existir: o Cerbos é *default deny*, então uma
+    /// ação que a policy não declara vira **403 silencioso**, sem erro de
+    /// compilação nem falha de teste que aponte a causa.
     init(resource: String, action: String) {
         self.resource = resource
         self.action = action
+    }
+
+    /// Init tipado para o recurso `patient`: o compilador garante que a ação
+    /// existe na policy (ver `PatientPolicyAction`).
+    init(patient action: PatientPolicyAction) {
+        self.resource = "patient"
+        self.action = action.rawValue
     }
 
     func respond(to request: Request, chainingTo next: AsyncResponder) async throws -> Response {

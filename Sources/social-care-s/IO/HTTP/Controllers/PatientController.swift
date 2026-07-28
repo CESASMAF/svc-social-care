@@ -7,11 +7,17 @@ struct PatientController: RouteCollection {
 
         // Defense-in-depth: RoleGuardMiddleware (decisão local) + CerbosGuardMiddleware
         // (mesma decisão, versionada/auditável). O Cerbos é feature-flag (CERBOS_URL):
-        // sem ele, o CerbosGuard é pass-through. Ação representativa por grupo — o RBAC
-        // é idêntico p/ as rotas do mesmo grupo (ver cells/idp/config/cerbos/policies).
+        // sem ele, o CerbosGuard é pass-through.
+        //
+        // Ação REPRESENTATIVA por grupo: dentro de cada grupo a policy aplica a mesma
+        // regra a todas as rotas (leitura → worker|owner|admin; escrita cadastral →
+        // worker; ciclo de vida → worker|admin), então uma ação representa o grupo.
+        // As ações vêm de `PatientPolicyAction` — o Cerbos é *default deny*, e uma
+        // ação inexistente na policy viraria 403 silencioso em todas as rotas do
+        // grupo. Ver `infra:.../policies/social-care/patient.yaml`.
         let read = patients.grouped(
             RoleGuardMiddleware("worker", "owner", "admin"),
-            CerbosGuardMiddleware(resource: "patient", action: "read")
+            CerbosGuardMiddleware(patient: .list)
         )
         read.get(use: list)
         read.get(":patientId", use: getById)
@@ -20,7 +26,7 @@ struct PatientController: RouteCollection {
 
         let write = patients.grouped(
             RoleGuardMiddleware("worker"),
-            CerbosGuardMiddleware(resource: "patient", action: "create")
+            CerbosGuardMiddleware(patient: .register)
         )
         write.post(use: register)
         write.post(":patientId", "family-members", use: addFamilyMember)
@@ -30,7 +36,7 @@ struct PatientController: RouteCollection {
 
         let lifecycle = patients.grouped(
             RoleGuardMiddleware("worker", "admin"),
-            CerbosGuardMiddleware(resource: "patient", action: "admit")
+            CerbosGuardMiddleware(patient: .admit)
         )
         lifecycle.post(":patientId", "discharge", use: discharge)
         lifecycle.post(":patientId", "readmit", use: readmit)
