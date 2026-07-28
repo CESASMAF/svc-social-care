@@ -5,6 +5,17 @@ struct JWTAuthMiddleware: AsyncMiddleware {
     private static let publicPaths: Set<String> = ["/health", "/ready"]
     private static let unauthorizedReason = "Unauthorized."
 
+    /// Resposta 401 única do middleware.
+    ///
+    /// Todos os caminhos de recusa devolvem exatamente este erro — a mensagem é
+    /// deliberadamente genérica (AppSec HIGH-B) para não virar oráculo de runtime:
+    /// quem sonda não descobre se faltou configuração, se faltou token ou se o
+    /// token era inválido. Centralizar evita que uma alteração futura diferencie
+    /// as mensagens sem querer, o que reabriria esse vazamento.
+    private static var unauthorized: Abort {
+        Abort(.unauthorized, reason: unauthorizedReason)
+    }
+
     func respond(to request: Request, chainingTo next: AsyncResponder) async throws -> Response {
         if Self.publicPaths.contains(request.url.path) {
             return try await next.respond(to: request)
@@ -15,17 +26,29 @@ struct JWTAuthMiddleware: AsyncMiddleware {
         // (config missing, service account specifics, etc.).
         guard request.application.oidcValidators != nil else {
             request.logger.error("OIDC validators not configured — bug de bootstrap, falhando fechado")
-            throw Abort(.unauthorized, reason: Self.unauthorizedReason)
+            throw Self.unauthorized
         }
 
         // Sem `Authorization: Bearer` → 401 ANTES de chamar request.jwt.verify.
         // A lib vapor/jwt loga `logger.error("Request is missing JWT bearer header")`
         // (Request+JWT.swift) em TODA tentativa anônima. Um acesso sem credencial é
-        // evento ESPERADO (não erro operacional), então respondemos aqui e mantemos
-        // o registro em `debug` — evita ruído de ERROR no log a cada 401.
+        // evento ESPERADO (não erro operacional), então respondemos aqui — sem o
+        // ERROR da lib.
+        //
+        // O registro NÃO vai para `debug`: `debug` é desligado em produção e o
+        // serviço ficaria sem como responder "estamos sob varredura?". Em vez de
+        // uma linha por requisição, o monitor conta todas e sinaliza log em marcos
+        // (1, 2, 4, 8…) carregando o total — sinal preservado, volume logarítmico.
+        // Ver `AnonymousAccessMonitor`.
         guard request.headers.bearerAuthorization != nil else {
-            request.logger.debug("Requisição sem Bearer token — respondendo 401")
-            throw Abort(.unauthorized, reason: Self.unauthorizedReason)
+            let observed = AnonymousAccessMonitor.shared.record()
+            if observed.isMilestone {
+                request.logger.notice(
+                    "Requisições sem Bearer token respondidas com 401",
+                    metadata: ["totalDesdeOBoot": .string("\(observed.total)")]
+                )
+            }
+            throw Self.unauthorized
         }
 
         let payload: OIDCJWTPayload
@@ -35,7 +58,7 @@ struct JWTAuthMiddleware: AsyncMiddleware {
             payload = try await request.jwt.verify(as: OIDCJWTPayload.self)
         } catch {
             request.logger.warning("JWT verify falhou", metadata: LogSanitizer.metadata(for: error))
-            throw Abort(.unauthorized, reason: Self.unauthorizedReason)
+            throw Self.unauthorized
         }
 
         var roles = payload.roleNames
