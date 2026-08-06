@@ -117,7 +117,16 @@ Domain ← Application ← IO (HTTP, Persistence, EventBus)
 - **Repository contracts são `protocol`** definidos em Domain (ex: `PatientRepository` em `Domain/Registry/Repository/`).
 - **`ServiceContainer`** em `IO/HTTP/Bootstrap/` é o composition root — instancia todos os handlers e repositórios, acessível via `Request.services`.
 - **StandardResponse\<T\>** com `meta.timestamp` envolve todas as respostas HTTP.
-- **Audit trail via `JWT.sub`**: `Request+ActorId.swift::extractActorId()` retorna `requireAuthenticatedUser().userId` (extraído do `sub` claim em `JWTAuthMiddleware.swift` — busque por âncora `// ADR-023:`). Adapters HTTP upstream (BFFs, gateways) DEVEM encaminhar o header `Authorization: Bearer <jwt>` — não há header customizado de identidade do ator. Ver ADR-023 do handbook frontend (`handbook/architecture/DECISIONS/ADR-023-bff-adapter-bearer-forwarding.md`).
+- **Audit trail via `JWT.sub`**: `Request+ActorId.swift::extractActorId()` retorna `requireAuthenticatedUser().userId` (extraído do `sub` claim em `JWTAuthMiddleware.swift` — busque por âncora `// ADR-023:`). Adapters HTTP upstream (BFFs, gateways) DEVEM encaminhar o header `Authorization: Bearer <jwt>` — não há header customizado de identidade do ator. O ADR local que governa isso é [ADR-011](handbook/architecture/DECISIONS/ADR-011-people-context-fail-secure-and-bearer-forwarding.md) (fail-secure + bearer forwarding).
+
+> ⚠️ **Colisão de numeração ADR-023 — não resolvida.** O número aparece com três
+> sentidos: no handbook é [ADR-023](handbook/architecture/DECISIONS/ADR-023-created-updated-at-on-root-tables.md)
+> (`created_at`/`updated_at` em tabelas raiz); no código a âncora `// ADR-023:`
+> marca "`sub` do JWT = actorId" (`JWTAuthMiddleware.swift`, `AuthenticatedUser.swift`,
+> `OIDCJWTPayload.swift`); e havia referência a um "ADR-023 do handbook frontend"
+> sobre bff-adapter-bearer-forwarding que **não existe** — nem aqui nem em
+> `app-conecta-web/handbook/adr/`. Ao tocar em audit trail ou bearer, leia o
+> código e o ADR-011; não confie no número. Renumerar exige decisão do dono do handbook.
 - **Multi-issuer OIDC (ADR-027, ADR-029, ADR-031)**: durante a migração Zitadel → Authentik, o serviço aceita tokens de ambos os issuers (env `OIDC_JWKS_URLS`, `OIDC_ISSUERS`, `OIDC_AUDIENCES` em CSV — **ADR-027**). `OIDCJWTPayload` (substitui `ZitadelJWTPayload`) lê roles via precedência: claim `roles` (Authentik com property mapping `acdg-roles`) → `groups` (Authentik default) → `urn:zitadel:iam:org:project:roles` (Zitadel legado) — **ADR-029** (precedência por presença, não por conteúdo: `roles` vazio ≠ fallback). Defense-in-depth: `OIDCJWTPayloadBootstrap` registra validators globalmente no boot — `verify(using:)` valida iss/aud/exp/nbf em todo codepath, não apenas no middleware — **ADR-031** (+ claims ACDG org_id/person_id/legacy_sub).
 
 ### Sequência obrigatória em command handlers
@@ -160,7 +169,7 @@ handbook/
 ├── features/<feature>.md               — Specs de feature (ex: PATIENT_LIFECYCLE.md)
 ├── front_end_forms/<form>.md           — Forma dos payloads de formulário
 ├── Agents/<agent>.md                   — Prompts de agents (implementor, reviewr)
-├── tooling/swift/                      — Refs Swift (API design, CQRS, PoP, swift_doc)
+├── tooling/swift/                      — Convenções Swift do projeto (API design, CQRS, PoP)
 └── reports/SESSION_YYYY_MM_DD.md       — Snapshots de sessão (histórico)
 ```
 
