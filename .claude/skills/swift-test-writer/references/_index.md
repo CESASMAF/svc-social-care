@@ -13,7 +13,6 @@ A porta de entrada é `../SKILL.md`. No projeto, o *como testar a feature* é a 
 | `test-doubles.md` | taxonomia Fowler (Dummy/Fake/Stub/Spy/SpyingStub/Mock) |
 | `fixtures.md` | padrões de fixture, datas determinísticas |
 | `integration-testing.md` | interações de módulo, in-memory, workflows |
-| `parameterized-tests.md` | múltiplos inputs (arguments, zip, produto cartesiano) |
 | `parameterized-testing.md` | ângulo complementar de parameterized |
 | `snapshot-testing.md` | snapshot de UI *(menos relevante neste backend)* |
 | `dump-snapshot-testing.md` | snapshot textual de estruturas/eventos/agregados |
@@ -25,8 +24,6 @@ A porta de entrada é `../SKILL.md`. No projeto, o *como testar a feature* é a 
 | `traits-and-tags.md` | filtragem por tag (CI, `make regression`), `.timeLimit`, `.bug` |
 | `parallelization-and-isolation.md` | segurança paralela, `.serialized` (testes de Postgres) |
 | `expectations.md` | tabela de decisão `#expect` vs `#require`, throw expectations |
-| `async-testing.md` | async/await, `confirmation`, timeouts, cancelamento |
-| `async-testing-and-waiting.md` | padrões de espera async, actor isolation em testes |
 | `async-tests.md` | testes serializados, `confirmation`, mock de rede |
 | `performance-and-best-practices.md` | dados determinísticos, prevenção de flakiness |
 
@@ -43,15 +40,13 @@ A porta de entrada é `../SKILL.md`. No projeto, o *como testar a feature* é a 
 | File | Use it for |
 |---|---|
 | `migration-xctest.md` | guia principal XCTest → Swift Testing |
-| `migration-from-xctest.md` | ângulo complementar de migração |
-| `migrating-from-xctest.md` | passos de coexistência XCTest/Swift Testing |
 | `xcode-workflows.md` | *(orientado a Xcode/IDE — marginal num serviço SwiftPM/Docker)* |
 
 ## Quick Links by Problem
 
 - "começar com Swift Testing" → `fundamentals.md`, `test-organization.md`
-- "testar múltiplos inputs (ex.: CPFs inválidos)" → `parameterized-tests.md`
-- "testar handler async + eventos" → `async-testing.md`, `confirmation` em `async-tests.md`
+- "testar múltiplos inputs (ex.: CPFs inválidos)" → `parameterized-testing.md`
+- "testar handler async + eventos" → `async-tests.md`
 - "criar fakes / fixtures" → `test-doubles.md`, `fixtures.md`
 - "teste flaky / não-determinístico" → `performance-and-best-practices.md`, `fixtures.md` (datas)
 - "isolar testes de Postgres" → `parallelization-and-isolation.md` (`.serialized`)

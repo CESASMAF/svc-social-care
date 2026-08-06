@@ -48,7 +48,6 @@ A porta de entrada é `../SKILL.md`; abra aqui a menor referência que casa com 
 | `linting.md` | regras de lint focadas em concorrência |
 | `performance.md` | workflow Instruments, actor hops, custo de suspensão |
 | `testing.md` | testar código async (ver também a skill `swift-testing`) |
-| `core-data.md` | *(iOS-only — não se aplica ao backend; herdado da base)* |
 
 ## Problem Router
 
