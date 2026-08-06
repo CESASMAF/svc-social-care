@@ -265,9 +265,9 @@ Localização: `Domain/<BC>/Repository/<Aggregate>Repository.swift`.
 | Non-mutating | `-ed`/`-ing` ou substantivo | `perCapita(_:)`, `densityRatio(_:)` |
 | Error case | snake do estado | `personIdAlreadyExists`, `invalidLookupId(table:id:)` |
 
-## REPORT.md (output)
+## Relatório (output)
 
-Ao terminar, escrever `.pipeline/<ticket>/001-contracts/REPORT.md`:
+Ao terminar, reporte na resposta final, neste formato:
 
 ```markdown
 # Domain Layer — <ticket>
