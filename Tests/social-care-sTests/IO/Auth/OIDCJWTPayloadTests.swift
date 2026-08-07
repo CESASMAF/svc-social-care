@@ -388,6 +388,67 @@ struct OIDCJWTPayloadTests {
         #expect(user.hasRole("admin"))
         #expect(user.hasRole("owner"))
     }
+
+    // MARK: - Regressao: `aud` vazio NAO pode derrubar o processo
+
+    /// `AudienceClaim.init(value:)` do JWTKit faz `precondition(!value.isEmpty)`, e `precondition`
+    /// nao e capturavel em Swift: antes da decodificacao explicita do payload, um token com
+    /// `"aud": []` matava o processo inteiro (`AudienceClaim.swift:18: Precondition failed`) em vez
+    /// de virar 401 — disponibilidade acionavel por request, sem sequer passar por role.
+    ///
+    /// Observado em 2026-08-07: o Hydra emite `aud` vazio quando o client OIDC nao pede `audience`
+    /// no `/authorize`; o servico caiu ao servir `GET /api/v1/patients`.
+    @Test("`aud` vazio lanca erro em vez de crashar o processo (regressao)")
+    func emptyAudienceThrowsInsteadOfCrashing() throws {
+        let json = """
+        {
+          "sub": "784a47c9-c73c-4956-9b3a-fa7da313668c",
+          "iss": "http://localhost:4444",
+          "aud": [],
+          "exp": \(expFuture),
+          "groups": ["superadmin"]
+        }
+        """
+        #expect(throws: (any Error).self) { try decode(json) }
+    }
+
+    @Test("`aud` ausente lanca erro (mesmo tratamento de `aud` vazio)")
+    func missingAudienceThrows() throws {
+        let json = """
+        {
+          "sub": "784a47c9-c73c-4956-9b3a-fa7da313668c",
+          "iss": "http://localhost:4444",
+          "exp": \(expFuture),
+          "groups": ["superadmin"]
+        }
+        """
+        #expect(throws: (any Error).self) { try decode(json) }
+    }
+
+    /// RFC 7519: `aud` pode ser string OU array. A decodificacao explicita precisa manter as duas
+    /// formas funcionando — perder a tolerancia quebraria todo token de IdP que emite `aud` simples.
+    @Test("`aud` string unica continua decodificando (RFC 7519)")
+    func singleStringAudienceStillDecodes() throws {
+        let json = """
+        {
+          "sub": "s", "iss": "http://localhost:4444", "aud": "social-care",
+          "exp": \(expFuture), "groups": ["superadmin"]
+        }
+        """
+        #expect(try decode(json).aud.value == ["social-care"])
+    }
+
+    @Test("`aud` array com multiplos valores continua decodificando (RFC 7519)")
+    func multiValueAudienceStillDecodes() throws {
+        let json = """
+        {
+          "sub": "s", "iss": "http://localhost:4444",
+          "aud": ["social-care", "people-context"],
+          "exp": \(expFuture), "groups": ["superadmin"]
+        }
+        """
+        #expect(try decode(json).aud.value == ["social-care", "people-context"])
+    }
 }
 
 // Stub minimo de JWTAlgorithm para invocar verify(using:) em tests

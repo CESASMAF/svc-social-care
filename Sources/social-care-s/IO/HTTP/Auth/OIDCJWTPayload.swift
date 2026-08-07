@@ -109,6 +109,56 @@ struct OIDCJWTPayload: JWTPayload {
     }
 }
 
+// MARK: - Decodificacao defensiva do `aud`
+
+extension OIDCJWTPayload {
+    /// Decodificacao explicita do payload — existe por UM motivo: `aud` vazio.
+    ///
+    /// `AudienceClaim.init(value:)` do JWTKit faz `precondition(!value.isEmpty)`. `precondition` NAO
+    /// e capturavel em Swift: um token com `"aud": []` **derruba o processo inteiro** em vez de virar
+    /// 401 — disponibilidade acionavel por request, antes de qualquer checagem de role. O Hydra emite
+    /// exatamente esse token quando o client nao pede `audience` no `/authorize`.
+    ///
+    /// Decodificamos `aud` a mao e recusamos com erro (capturavel) ANTES de construir o claim.
+    /// Ausente e vazio caem no mesmo caso: token sem audience nao e valido aqui, ja que
+    /// `verify(validators:)` exige interseccao com `OIDC_AUDIENCES`.
+    ///
+    /// Fica em `extension` de proposito: um `init` no corpo do struct apagaria o memberwise init
+    /// que os testes usam para montar payloads.
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        // RFC 7519: `aud` e string OU array de strings. Mesma tolerancia do JWTKit, sem o precondition.
+        let audValues: [String] =
+            if let single = try? c.decodeIfPresent(String.self, forKey: .aud), !single.isEmpty {
+                [single]
+            } else if let list = try? c.decodeIfPresent([String].self, forKey: .aud) {
+                list
+            } else {
+                []
+            }
+
+        guard !audValues.isEmpty else {
+            throw JWTError.claimVerificationFailure(
+                failedClaim: nil,
+                reason: "token sem audience: claim 'aud' ausente ou vazio"
+            )
+        }
+
+        self.aud = AudienceClaim(value: audValues)
+        self.sub = try c.decode(SubjectClaim.self, forKey: .sub)
+        self.exp = try c.decode(ExpirationClaim.self, forKey: .exp)
+        self.iss = try c.decode(IssuerClaim.self, forKey: .iss)
+        self.nbf = try c.decodeIfPresent(NotBeforeClaim.self, forKey: .nbf)
+        self.roles = try c.decodeIfPresent([String].self, forKey: .roles)
+        self.groups = try c.decodeIfPresent([String].self, forKey: .groups)
+        self.projectRoles = try c.decodeIfPresent([String: [String: String]].self, forKey: .projectRoles)
+        self.orgId = try c.decodeIfPresent(String.self, forKey: .orgId)
+        self.personId = try c.decodeIfPresent(String.self, forKey: .personId)
+        self.legacySub = try c.decodeIfPresent(String.self, forKey: .legacySub)
+    }
+}
+
 /// Validators de issuer + audience para JWT OIDC (multi-issuer).
 ///
 /// Configurado no boot a partir de `OIDC_ISSUERS` (CSV) e `OIDC_AUDIENCES`
