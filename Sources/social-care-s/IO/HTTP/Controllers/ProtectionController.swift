@@ -54,7 +54,10 @@ struct ProtectionController: RouteCollection {
         let body = try req.content.decode(ReportRightsViolationRequest.self)
 
         let validator = MetadataValidator(db: req.services.db)
-        try await validator.validateViolationType(
+        // O catalogo manda: quando vem `violationTypeId` (o que a tela envia), a categoria de dominio
+        // e DERIVADA dele — o `violationType` do corpo vira fallback do contrato legado. Assim os dois
+        // vocabularios nao podem mais divergir.
+        let derivedType = try await validator.validateViolationType(
             typeId: body.violationTypeId,
             descriptionOfFact: body.descriptionOfFact
         )
@@ -62,7 +65,7 @@ struct ProtectionController: RouteCollection {
         let command = ReportRightsViolationCommand(
             patientId: patientId,
             victimId: body.victimId,
-            violationType: body.violationType,
+            violationType: derivedType?.rawValue ?? body.violationType,
             reportDate: body.reportDate,
             incidentDate: body.incidentDate,
             descriptionOfFact: body.descriptionOfFact,

@@ -98,3 +98,45 @@ struct ReportRightsViolationTests {
         #expect(!id2.isEmpty)
     }
 }
+
+// MARK: - Catalogo (pt-BR) -> categoria de dominio (en)
+//
+// O catalogo `dominio_tipo_violacao` esta em portugues e o enum do dominio em ingles. Nenhum dos 11
+// codigos casava com os 9 casos, entao NENHUM tipo escolhido na tela era aceito (RRV-004) — o
+// formulario de violacao de direitos era inteiramente inoperante. Estes testes fixam a traducao;
+// se o catalogo ganhar um codigo novo, o ultimo teste quebra e obriga a decidir a categoria.
+@Suite("ViolationType — traducao do catalogo operacional")
+struct ViolationTypeCatalogMappingTests {
+    typealias VT = RightsViolationReport.ViolationType
+
+    @Test("todo codigo do catalogo tem categoria de dominio")
+    func todosOsCodigosMapeiam() {
+        // Os 11 codigos semeados em `dominio_tipo_violacao`.
+        let catalogo = [
+            "NEGLIGENCIA_ABANDONO", "VIOLENCIA_PSICOLOGICA", "VIOLENCIA_FISICA", "VIOLENCIA_SEXUAL",
+            "TRABALHO_INFANTIL", "VIOLENCIA_PATRIMONIAL", "DISCRIMINACAO", "TORTURA",
+            "TRAFICO_PESSOAS", "VIOLENCIA_INSTITUCIONAL", "OUTRA",
+        ]
+        for codigo in catalogo {
+            #expect(VT.fromCatalogCode(codigo) != nil, "codigo '\(codigo)' ficou sem categoria de dominio")
+        }
+    }
+
+    @Test("tipos graves NAO caem em `other` — a tabela nao guarda o id do catalogo, o dado se perderia")
+    func tiposGravesTemCategoriaPropria() {
+        #expect(VT.fromCatalogCode("TORTURA") == .torture)
+        #expect(VT.fromCatalogCode("TRAFICO_PESSOAS") == .humanTrafficking)
+        #expect(VT.fromCatalogCode("VIOLENCIA_INSTITUCIONAL") == .institutionalViolence)
+        #expect(VT.fromCatalogCode("DISCRIMINACAO") == .discrimination)
+    }
+
+    @Test("codigo desconhecido devolve nil — vira 422 explicito, nao um `other` silencioso")
+    func codigoDesconhecido() {
+        #expect(VT.fromCatalogCode("CODIGO_QUE_NAO_EXISTE") == nil)
+    }
+
+    @Test("comparacao e case-insensitive")
+    func caseInsensitive() {
+        #expect(VT.fromCatalogCode("tortura") == .torture)
+    }
+}
