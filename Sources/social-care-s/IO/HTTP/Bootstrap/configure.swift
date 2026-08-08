@@ -193,8 +193,13 @@ func configure(_ app: Application) async throws {
     //
     // Backward compat (Sprint 1-2 single-issuer):
     //   - Se OIDC_JWKS_URLS nao setada, usa JWKS_URL (legacy).
-    //   - Se OIDC_ISSUERS nao setada, usa ZITADEL_ISSUER (legacy).
-    //   - Se OIDC_AUDIENCES nao setada, usa ZITADEL_PROJECT_ID (legacy).
+    //
+    // Os fallbacks ZITADEL_* foram REMOVIDOS (2026-08-06). O IdP passou por
+    // Zitadel -> Authentik -> Ory e a infra sempre seta OIDC_*, entao eles
+    // nunca disparavam. Ler `ZITADEL_ISSUER` num servico que fala com o Hydra
+    // era codigo morto que fazia qualquer leitor concluir que este servico
+    // ainda estava em Zitadel — foi exatamente o que a auditoria concluiu antes
+    // de conferir o compose.
 
     // Code-review M1 (2026-05-14): hardcoded de producao APENAS em dev.
     // Em producao, ausencia de env e fail-fast — evita foot-gun onde dev
@@ -258,13 +263,11 @@ func configure(_ app: Application) async throws {
     // M1: hardcoded apenas em dev — em prod, env obrigatoria.
     let issuersCsv: String = {
         if let env = Environment.get("OIDC_ISSUERS") { return env }
-        if let legacy = Environment.get("ZITADEL_ISSUER") { return legacy }
         guard !isProduction else { return "" }
         return "https://auth.acdgbrasil.com.br"
     }()
     let audiencesCsv: String = {
         if let env = Environment.get("OIDC_AUDIENCES") { return env }
-        if let legacy = Environment.get("ZITADEL_PROJECT_ID") { return legacy }
         guard !isProduction else { return "" }
         return "363110312318140539"
     }()
@@ -288,11 +291,16 @@ func configure(_ app: Application) async throws {
 
     // MARK: - Token Introspection (fallback for service accounts without role claims)
 
-    if let introspectClientId = Environment.get("ZITADEL_INTROSPECT_CLIENT_ID"),
-       let introspectClientSecret = Environment.get("ZITADEL_INTROSPECT_CLIENT_SECRET") {
-        let issuer = Environment.get("ZITADEL_ISSUER") ?? "https://auth.acdgbrasil.com.br"
-        app.tokenIntrospector = ZitadelTokenIntrospector(
-            introspectURL: "\(issuer)/oauth/v2/introspect",
+    // Envs no mesmo vocabulário do `people-context` (OIDC_INTROSPECT_*). As
+    // antigas ZITADEL_INTROSPECT_* saíram: a infra nunca as setou, o path
+    // `/oauth/v2/introspect` é do Zitadel, e o Hydra publica o endpoint de
+    // introspecção no discovery. Por isso a URL agora é explícita, em vez de
+    // derivada de um issuer com um path de fornecedor colado.
+    if let introspectClientId = Environment.get("OIDC_INTROSPECT_CLIENT_ID"),
+       let introspectClientSecret = Environment.get("OIDC_INTROSPECT_CLIENT_SECRET"),
+       let introspectURL = Environment.get("OIDC_INTROSPECT_URL") {
+        app.tokenIntrospector = OIDCTokenIntrospector(
+            introspectURL: introspectURL,
             clientId: introspectClientId,
             clientSecret: introspectClientSecret
         )

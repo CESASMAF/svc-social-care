@@ -55,7 +55,7 @@ Guardrails específicos do projeto:
 | `Actor-isolated type does not conform to protocol` | O requisito precisa rodar no actor? | Prefira conformance isolada; use `nonisolated` só para requisitos genuinamente não-isolados. | `references/actors.md`, `references/swift-6-2-concurrency.md` |
 | `... cannot satisfy conformance requirement for a 'Sendable' type parameter` (`SendableMetatype`) | A conformance carrega isolamento de global actor? | Remova o isolamento da conformance, ou evite passar o metatype através da fronteira. | `references/actors.md` |
 | `Main actor-isolated ... cannot be used from a nonisolated context` | Isso é realmente UI-bound? (Aqui: quase nunca.) | Provavelmente o tipo não deveria ser `@MainActor` — mova para `actor` ou `Sendable` value. | `references/actors.md` |
-| `wait(...) is unavailable from asynchronous contexts` | É espera de XCTest legado? | Use APIs de `swift-testing` (`confirmation`, `#expect`) — ver skill `swift-testing`. | `references/testing.md`, `references/testing-review.md` |
+| `wait(...) is unavailable from asynchronous contexts` | É espera de XCTest legado? | Use APIs de `swift-testing` (`confirmation`, `#expect`) — ver `swift-test-writer`. | `references/testing.md`, `references/testing-review.md` |
 | Lint concorrência (`async_without_await`) | `async` é exigido por protocolo/override? | Remova `async` ou suprima com rationale. Nunca adicione `await` falso. | `references/linting.md` |
 
 ## Concurrency Tool Selection
@@ -65,7 +65,7 @@ Guardrails específicos do projeto:
 | Operação async sequencial | `async/await` | Default em handlers (`try await repository.save(...)`). |
 | Paralelas de contagem fixa | `async let` | Parses paralelos de VOs. Swift 6.3.1 fixou stack-alloc em `async let`. |
 | Paralelas de contagem dinâmica | `withTaskGroup` | Cancela filhos ao sair do escopo. |
-| Estado mutável compartilhado | `actor` | **Command handlers**, fakes `InMemory*Repository`/`InMemoryEventBus` (testes). |
+| Estado mutável compartilhado | `actor` | **Command handlers**, fakes `InMemory*Repository` (testes). |
 | Leitura sem mutação | `struct` (não `actor`) | **Query handlers** — dispensam exclusão mútua. |
 
 ### Cenário canônico — command handler (write side)
@@ -73,7 +73,7 @@ Guardrails específicos do projeto:
 ```swift
 public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
     private let repository: any PatientRepository   // Sendable port
-    // parse (VOs Sendable) → validate → domain → persist → publish (via Outbox)
+    // parse (VOs Sendable) → validate → domain → persist (Outbox na mesma TX)
     public func handle(_ command: RegisterPatientCommand) async throws -> String {
         let personId = try PersonId(command.personId)        // VO Sendable
         guard try await repository.exists(byPersonId: personId) == false else { /* ... */ }
@@ -122,7 +122,6 @@ Abra a menor referência que casa com a pergunta. Índice completo e por-problem
 - **Swift 6.2+ / Advanced:** `swift-6-2-concurrency.md`, `approachable-concurrency.md`, `structured.md`, `unstructured.md`, `cancellation.md`, `bridging.md`, `interop.md`, `new-features.md`
 - **Code Review:** `hotspots.md`, `bug-patterns.md`, `diagnostics.md`, `actors-review.md`, `testing-review.md`
 - **Migração / tooling / testes:** `migration.md`, `linting.md`, `performance.md`, `testing.md`
-- *(`core-data.md` é iOS-only — herdado da base, não se aplica a este backend.)*
 
 ## Verification Checklist
 

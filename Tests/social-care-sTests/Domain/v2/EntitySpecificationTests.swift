@@ -116,3 +116,51 @@ struct EntitySpecificationTests {
         }
     }
 }
+
+// MARK: - Cuidador principal: a invariante vale em TODO caminho de escrita
+//
+// `assignPrimaryCaregiver` sempre revogou os demais, mas quem entrava JA marcado como cuidador
+// escapava: bastava marcar "e cuidador(a)" ao adicionar membro e o paciente ficava com dois
+// "cuidador principal" ao mesmo tempo — reproduzido pela tela (Pedro e Marta, ambos com estrela).
+@Suite("Cuidador principal — unicidade em qualquer caminho")
+struct PrimaryCaregiverUniquenessTests {
+
+    private func pacienteComCuidador() throws -> (Patient, LookupId) {
+        let pId = PersonId()
+        let prId = try LookupId(UUID().uuidString)
+        let diag = try Diagnosis(id: try ICDCode("B20"), date: .now, description: "Test", now: .now)
+        let pr = try FamilyMember(personId: pId, relationshipId: prId, isPrimaryCaregiver: true, residesWithPatient: true, birthDate: .now)
+        let patient = try Patient(
+            id: PatientId(), personId: pId, diagnoses: [diag], familyMembers: [pr],
+            prRelationshipId: prId, actorId: "test-actor", now: .now
+        )
+        return (patient, prId)
+    }
+
+    @Test("adicionar membro JA como cuidador revoga o cuidador anterior")
+    func adicionarComoCuidadorRevogaAnterior() throws {
+        var (patient, prId) = try pacienteComCuidador()
+        let outroParentesco = try LookupId(UUID().uuidString)
+        let novo = try FamilyMember(personId: PersonId(), relationshipId: outroParentesco, isPrimaryCaregiver: true, residesWithPatient: true, birthDate: .now)
+
+        try patient.addMember(novo, actorId: "test-actor", primaryReferenceId: prId)
+
+        let principais = patient.familyMembers.filter(\.isPrimaryCaregiver)
+        #expect(principais.count == 1, "ficaram \(principais.count) cuidadores principais")
+        #expect(principais.first?.personId == novo.personId)
+    }
+
+    @Test("adicionar membro comum NAO mexe em quem ja e cuidador")
+    func adicionarMembroComumPreservaCuidador() throws {
+        var (patient, prId) = try pacienteComCuidador()
+        let anterior = patient.familyMembers.first(where: \.isPrimaryCaregiver)?.personId
+        let outroParentesco = try LookupId(UUID().uuidString)
+        let novo = try FamilyMember(personId: PersonId(), relationshipId: outroParentesco, isPrimaryCaregiver: false, residesWithPatient: true, birthDate: .now)
+
+        try patient.addMember(novo, actorId: "test-actor", primaryReferenceId: prId)
+
+        let principais = patient.familyMembers.filter(\.isPrimaryCaregiver)
+        #expect(principais.count == 1)
+        #expect(principais.first?.personId == anterior)
+    }
+}

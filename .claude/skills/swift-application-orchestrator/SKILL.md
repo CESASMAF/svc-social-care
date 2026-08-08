@@ -6,7 +6,7 @@ description: >
   Services protocols (`LookupValidating`, `PersonExistenceValidating`).
   Orquestra Domain + Ports. Ativa quando o usuário menciona: use case,
   command handler, query handler, CommandHandling, ResultCommandHandling,
-  QueryHandling, parse → validate → domain → persist → publish, mapError.
+  QueryHandling, parse → validate → domain → persist, mapError.
 ---
 
 # Swift Application Orchestrator — social-care
@@ -42,12 +42,17 @@ Application/<BC>/<UseCase>/
 1. **Sem `Vapor` import nesta camada** — Application não conhece HTTP.
 2. **Sequência obrigatória dentro do handler:**
    ```
-   parse VOs → validate (lookup, existence, business) → domain logic → persist → publish events
+   parse VOs → validate (lookup, existence, business) → domain logic → persist
    ```
+   Termina em `persist`. Não há passo de publish — ver item 6.
 3. **Handler é `actor`** (write) ou `struct` (read).
 4. **Dependências `private let`** injetadas via `init` — tipos `any P` (PoP).
 5. **`do/catch` no topo + `throw mapError(error, ...)` no final.**
-6. **Eventos publicados APÓS `repository.save`** — nunca antes.
+6. **Eventos saem pelo `repository.save`, não pelo handler (ADR-014).** O handler
+   **não** recebe `EventBus` no `init` e **não** chama `eventBus.publish(...)`:
+   `save(aggregate)` grava o agregado e seus `uncommittedEvents` em
+   `outbox_messages` na mesma transação. Handler que "publica" está escrevendo
+   dead code — era exatamente o achado S-C4 que originou o ADR.
 7. **`actorId: String` obrigatório no Command** — derivado de `JWT.sub`.
 8. **Erros enum implementam `AppErrorConvertible`** com `code` único.
 
@@ -125,18 +130,16 @@ import Foundation
 /// Implementação do serviço Maestro para registro de novos pacientes.
 public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     private let lookupValidator: any LookupValidating
     private let personValidator: (any PersonExistenceValidating)?
 
+    // NÃO injete `EventBus` aqui — ADR-014. Ver "Persist" no passo 6.
     public init(
         repository: any PatientRepository,
-        eventBus: any EventBus,
         lookupValidator: any LookupValidating,
         personValidator: (any PersonExistenceValidating)? = nil
     ) {
         self.repository = repository
-        self.eventBus = eventBus
         self.lookupValidator = lookupValidator
         self.personValidator = personValidator
     }
@@ -157,11 +160,18 @@ public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
             let personalData = try command.personalData.map(parsePersonalData)
             // ... outros parses
 
-            // 2. Cross-context validation (PeopleContext)
+            // 2. Cross-context validation (PeopleContext) — tri-state, ADR-011
+            // `validate` NUNCA lança: devolve .exists / .notFound / .unknown.
+            // `.unknown` (upstream fora do ar) é fail-SECURE — bloqueia com 503,
+            // não passa silencioso. Não colapse os três casos em Bool.
             if let validator = personValidator {
-                let exists = try await validator.exists(personId: personId)
-                guard exists else {
+                switch await validator.validate(personId: personId, bearer: command.bearer) {
+                case .exists:
+                    break
+                case .notFound:
                     throw RegisterPatientError.personIdNotFoundInPeopleContext(command.personId)
+                case .unknown(let reason):
+                    throw RegisterPatientError.personValidationUnavailable(reason: reason)
                 }
             }
 
@@ -198,9 +208,10 @@ public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
                 actorId: command.actorId
             )
 
-            // 6. Persist + publish
+            // 6. Persist (+ eventos, na MESMA transação — ADR-014)
+            // `save` grava o agregado e os `uncommittedEvents` em outbox_messages
+            // atomicamente. Não existe chamada de publish no handler.
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
 
             return patient.id.description
         } catch {
@@ -346,8 +357,7 @@ Application importar.
 - `GetUnifiedPatientProfileQuery: Query` (Result = UnifiedPatientProfile)
 
 ## Ports dependentes
-- `any PatientRepository` (Domain)
-- `any EventBus` (shared)
+- `any PatientRepository` (Domain) — inclui a escrita no outbox (ADR-014)
 - `any LookupValidating` (Domain/Configuration)
 - `any PersonExistenceValidating` (opcional — feature flag)
 
@@ -421,7 +431,8 @@ Se durante seu trabalho um teste falhar — **qualquer teste**, em qualquer arqu
 
 ## Antes de fechar
 
-- [ ] Sequência canônica respeitada (parse → validate → domain → persist → publish)
+- [ ] Sequência canônica respeitada (parse → validate → domain → persist)
+- [ ] `init` do handler **não** recebe `EventBus`; nenhum `eventBus.publish(...)` no corpo (ADR-014)
 - [ ] Eventos publicados APÓS save
 - [ ] `actorId` propagado para agregado e eventos
 - [ ] `mapError` cobre `AppError`, `AppErrorConvertible`, `PersistenceConflictError` (ADR-010), default

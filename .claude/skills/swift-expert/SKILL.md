@@ -59,8 +59,8 @@ ficam no caminho original — abra sempre a partir da raiz do repo:
    - `handbook/tooling/swift/api-design-guidelines/concurrency.md`
    - `handbook/tooling/swift/api-design-guidelines/memory_safe.md`
    - `handbook/tooling/swift/api-design-guidelines/patterns_guideline.md`
-9. **Swift language reference** — `handbook/tooling/swift/swift_doc/` (Markdown
-   + PDFs oficiais Apple)
+9. **Swift language reference** — consulte `acdg-ref:ref-vapor` (Reference
+   Network) para fatos de doc. Não há espelho local da linguagem neste repo.
 10. **Atalhos de comandos** — `social-care/CLAUDE.md`
 11. **Code reviewer prompt** — `handbook/Agents/reviewr.md` (Swift API Design Guidelines + performance)
 
@@ -73,7 +73,8 @@ Em conflito: **handbook prevalece sobre skill**. Em conflito dentro do handbook,
 Data Flow (write side — CQRS):
   Controller → DTO parse → ResolveHandler → Actor.handle(Command)
     → parse VOs → validate (lookup, existence) → domain logic
-    → repo.save → eventBus.publish(uncommittedEvents) → StandardResponse
+    → repo.save (agregado + uncommittedEvents, atômico) → StandardResponse
+    ↳ o relay do Outbox despacha de outbox_messages para o NATS, fora do request
 
 Data Flow (read side — CQRS):
   Controller → ResolveHandler → struct.handle(Query)
@@ -217,18 +218,16 @@ public struct RegisterPatientCommand: ResultCommand {
 ```swift
 public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
     private let repository: any PatientRepository
-    private let eventBus: any EventBus
     private let lookupValidator: any LookupValidating
     private let personValidator: (any PersonExistenceValidating)?
 
+    // Sem `EventBus` no init — ADR-014. Ver passo 5.
     public init(
         repository: any PatientRepository,
-        eventBus: any EventBus,
         lookupValidator: any LookupValidating,
         personValidator: (any PersonExistenceValidating)? = nil
     ) {
         self.repository = repository
-        self.eventBus = eventBus
         self.lookupValidator = lookupValidator
         self.personValidator = personValidator
     }
@@ -253,9 +252,9 @@ public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
             // 4. Domain logic
             var patient = try Patient(/* ... */, actorId: command.actorId)
 
-            // 5. Persist + publish events
+            // 5. Persist — grava agregado + uncommittedEvents na mesma
+            //    transação (Outbox). Não há publish aqui: ADR-014.
             try await repository.save(patient)
-            try await eventBus.publish(patient.uncommittedEvents)
 
             return patient.id.description
         } catch {
@@ -271,15 +270,19 @@ public actor RegisterPatientCommandHandler: RegisterPatientUseCase {
 1. Parse  → cria VOs via init(_:) throws
 2. Validate → lookups, existence, business invariants
 3. Domain logic → instancia/muta agregado
-4. Persist → repository.save
-5. Publish → eventBus.publish(aggregate.uncommittedEvents)  ← APÓS save
+4. Persist → repository.save  ← agregado + eventos, atômico (Outbox)
 ```
+
+Termina em `save`. **Não existe passo 5 de publish** — ADR-014.
 
 **Regras:**
 - `actor` em handlers — garante exclusão mútua entre invocações concorrentes
-- Dependências `private let` injetadas via `init` (PoP: `any PatientRepository`, `any EventBus`)
+- Dependências `private let` injetadas via `init` (PoP: `any PatientRepository`,
+  `any LookupValidating`) — **nunca** `any EventBus`
 - `do/catch` no topo, `throw mapError(error, ...)` no final mapeia erros para `AppError`
-- Eventos publicados **só depois** de persistência confirmada
+- Eventos são responsabilidade do repositório: `save` escreve `uncommittedEvents`
+  em `outbox_messages` na mesma transação do agregado. Handler que chama
+  `eventBus.publish(...)` escreve no-op (achado S-C4 → ADR-014)
 - Nunca chama outro Controller — só Domain + Ports
 - Sem `Vapor` import na camada Application
 
@@ -570,10 +573,14 @@ skill horizontal **`swift-api-design-guidelines`**.
 
 **Fakes (não mocks):** em `Tests/social-care-sTests/Application/TestDoubles/`:
 
-- `InMemoryPatientRepository`
-- `InMemoryEventBus` — captura `publishedEvents` para assertions
+- `InMemoryPatientRepository` — captura `publishedEvents` no `save` (ADR-014) e
+  reproduz o optimistic lock do ADR-005; é onde se assertam os eventos
+- `InMemoryPatientAssessmentRepository` — agregado de assessment (ADR-024/025)
 - `InMemoryLookupValidator` — pré-carregado com IDs válidos por tabela
-- `PatientFixture` — factory de Patient com defaults sensatos
+- `InMemoryLookupAdminRepository`, `InMemoryLookupRequestRepository`
+- `PatientFixture`, `RegressionFixture` — factories com defaults sensatos
+
+Não há `InMemoryEventBus`: o protocolo `EventBus` foi removido em ADR-014.
 
 **Layout de teste:**
 
@@ -585,19 +592,20 @@ struct RegisterPatientCommandHandlerTests {
     func happyPath() async throws {
         // Arrange
         let repo = InMemoryPatientRepository()
-        let bus = InMemoryEventBus()
         let lookup = InMemoryLookupValidator.withValidParentesco()
         let handler = RegisterPatientCommandHandler(
-            repository: repo, eventBus: bus, lookupValidator: lookup
+            repository: repo, lookupValidator: lookup
         )
         let command = RegisterPatientCommand.fixture()
 
         // Act
         let id = try await handler.handle(command)
 
-        // Assert
+        // Assert — os eventos são conferidos NO REPOSITÓRIO (ADR-014):
+        // o fake acumula `uncommittedEvents` em `publishedEvents` dentro do
+        // save, espelhando o Outbox. Não existe fake de EventBus no arranjo.
         #expect(try await repo.exists(byPersonId: PersonId(command.personId)))
-        let published = await bus.publishedEvents
+        let published = await repo.publishedEvents
         #expect(published.contains { $0 is PatientRegistered })
         #expect(!id.isEmpty)
     }
@@ -623,8 +631,8 @@ struct RegisterPatientCommandHandlerTests {
 
 Detalhes: `handbook/Agents/reviewr.md` + `social-care/CLAUDE.md`.
 Aprofundamento do framework (traits/tags, parameterized, paralelismo/`.serialized`,
-`confirmation`, `#expect` vs `#require`): skill horizontal **`swift-testing`**;
-a vertical de execução de testes é **`swift-test-writer`**.
+`confirmation`, `#expect` vs `#require`): **`swift-test-writer`**, cujo
+`references/` traz a doc do framework (comece pelo `references/_index.md`).
 
 ## Non-Negotiable Rules
 
@@ -667,16 +675,16 @@ Quando um ticket cruza camadas, delegue para as skills especializadas:
 
 ### Comunicação entre skills
 
-Cada skill escreve `REPORT.md` em `.pipeline/<ticket>/`:
+Cada skill reporta seu resultado na resposta final — não escreve arquivo de relatório.
+A ordem e o que cada uma entrega:
 
 ```
-.pipeline/<ticket>/
-  001-contracts/REPORT.md   — swift-domain-modeler (VOs + agregados + ports)
-  002-tests/REPORT.md       — swift-test-writer (W0 RED)
-  003-application/REPORT.md — swift-application-orchestrator
-  003-io/REPORT.md          — swift-io-implementer
-  004-code-review/REVIEW.md — code-reviewer humano + reviewr.md prompt
-  005-quality/REPORT.md     — make ci output + coverage
+contracts    — swift-domain-modeler (VOs + agregados + ports)
+tests        — swift-test-writer (W0 RED)
+application  — swift-application-orchestrator
+io           — swift-io-implementer
+code-review  — code-reviewer humano + reviewr.md prompt
+quality      — make ci output + coverage
 ```
 
 ### Dependency Chain

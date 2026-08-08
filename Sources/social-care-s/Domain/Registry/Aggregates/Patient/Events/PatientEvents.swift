@@ -2,6 +2,17 @@ import Foundation
 
 // MARK: - Lifecycle Events
 
+/// Registro de paciente.
+///
+/// Carrega os quase-identificadores **já generalizados** — `ageBand`, `sex` e
+/// mesorregião. Nunca data de nascimento nem CEP: o `analysis-bi` promete não
+/// receber PII, e generalizar na origem é o que faz essa promessa valer no
+/// código (ver `DemographicGeneralization`).
+///
+/// Os três são opcionais porque o cadastro admite paciente sem dados pessoais
+/// ou sem endereço. `nil` significa "não sabemos" e é diferente de um valor
+/// padrão — o consumidor precisa dessa distinção para não contar ausência
+/// como categoria.
 public struct PatientCreatedEvent: DomainEvent, Codable {
     public let id: UUID
     public let patientId: String
@@ -9,9 +20,31 @@ public struct PatientCreatedEvent: DomainEvent, Codable {
     public let actorId: String
     public let occurredAt: Date
 
-    public init(patientId: String, personId: String, actorId: String, occurredAt: Date) {
+    /// Faixa etária de 5 anos (`"0-4"` … `"75-79"`, `"80+"`).
+    public let ageBand: String?
+    /// `masculino` | `feminino` | `outro` — o rawValue de `PersonalData.Sex`.
+    public let sex: String?
+    /// Código IBGE da mesorregião (o CEP que a originou não sai deste serviço).
+    public let mesoregionCode: String?
+    public let mesoregionName: String?
+    public let stateCode: String?
+
+    public init(
+        patientId: String,
+        personId: String,
+        actorId: String,
+        occurredAt: Date,
+        ageBand: String? = nil,
+        sex: String? = nil,
+        mesoregion: Mesoregion? = nil
+    ) {
         self.id = UUID(); self.patientId = patientId; self.personId = personId
         self.actorId = actorId; self.occurredAt = occurredAt
+        self.ageBand = ageBand
+        self.sex = sex
+        self.mesoregionCode = mesoregion?.code
+        self.mesoregionName = mesoregion?.name
+        self.stateCode = mesoregion?.stateCode
     }
 }
 

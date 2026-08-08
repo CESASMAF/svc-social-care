@@ -41,8 +41,42 @@ public struct RightsViolationReport: Codable, Equatable, Sendable {
         case childLabor = "CHILD_LABOR"
         case financialExploitation = "FINANCIAL_EXPLOITATION"
         case discrimination = "DISCRIMINATION"
+        // Tipificacoes que o catalogo operacional (`dominio_tipo_violacao`) ja reconhece e o dominio
+        // nao tinha. Sem elas, TORTURA / TRAFICO_PESSOAS / VIOLENCIA_INSTITUCIONAL so poderiam ser
+        // registradas como `other` — e como a tabela NAO persiste o id do catalogo, so o enum, o tipo
+        // real se perderia para sempre. Num servico de protecao e justamente o dado que importa.
+        case torture = "TORTURE"
+        case humanTrafficking = "HUMAN_TRAFFICKING"
+        case institutionalViolence = "INSTITUTIONAL_VIOLENCE"
         case other = "OTHER"
+
+        /// Traducao do `codigo` do catalogo operacional (pt-BR) para a categoria de dominio (en).
+        ///
+        /// Os dois vocabularios convivem de proposito: o catalogo e configuravel e carrega metadados
+        /// (ex.: `exige_descricao`), o enum e fechado e sustenta regra e analytics. O que NAO podia
+        /// continuar e a divergencia silenciosa — nenhum dos 11 codigos casava com os 9 casos, entao
+        /// NENHUM tipo escolhido na tela era aceito (RRV-004).
+        ///
+        /// VIOLENCIA_SEXUAL mapeia para `sexualAbuse`: `sexualExploitation` e um recorte mais especifico
+        /// que o catalogo nao distingue hoje; quando distinguir, ganha `codigo` proprio.
+        public static func fromCatalogCode(_ codigo: String) -> ViolationType? {
+            switch codigo.uppercased() {
+            case "NEGLIGENCIA_ABANDONO": return .neglect
+            case "VIOLENCIA_PSICOLOGICA": return .psychologicalViolence
+            case "VIOLENCIA_FISICA": return .physicalViolence
+            case "VIOLENCIA_SEXUAL": return .sexualAbuse
+            case "TRABALHO_INFANTIL": return .childLabor
+            case "VIOLENCIA_PATRIMONIAL": return .financialExploitation
+            case "DISCRIMINACAO": return .discrimination
+            case "TORTURA": return .torture
+            case "TRAFICO_PESSOAS": return .humanTrafficking
+            case "VIOLENCIA_INSTITUCIONAL": return .institutionalViolence
+            case "OUTRA": return .other
+            default: return nil
+            }
+        }
     }
+
 
     // MARK: - Initializer
 

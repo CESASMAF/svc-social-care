@@ -4,7 +4,12 @@ protocol TokenIntrospecting: Sendable {
     func introspect(token: String, client: Client) async throws -> Set<String>
 }
 
-struct ZitadelTokenIntrospector: TokenIntrospecting {
+/// Introspecção RFC 7662 — fallback para service accounts sem claim de role.
+///
+/// Renomeado de `ZitadelTokenIntrospector` (2026-08-06): o endpoint é padrão
+/// RFC, não específico de fornecedor, e o nome antigo indicava um IdP que este
+/// serviço não usa há duas migrações (Zitadel → Authentik → Ory).
+struct OIDCTokenIntrospector: TokenIntrospecting {
     let introspectURL: String
     let clientId: String
     let clientSecret: String

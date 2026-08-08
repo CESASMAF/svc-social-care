@@ -35,7 +35,7 @@ struct RegisterPatientCommandHandlerTests {
         // Assert
         #expect(!patientId.isEmpty)
         #expect(try await sut.repository.exists(byPersonId: PersonId(command.personId)))
-        let events = await sut.bus.publishedEvents
+        let events = await sut.repository.publishedEvents
         #expect(events.contains { $0 is PatientRegistered })
     }
 }
@@ -54,8 +54,10 @@ struct RegisterPatientCommandHandlerTests {
 
 > **Aprofundamento do framework:** para traits/tags, paralelismo e `.serialized`
 > (testes de Postgres), `confirmation`, tabela `#expect` vs `#require`, e migração
-> de XCTest, consulte a skill horizontal **`swift-testing`**. Esta skill
-> (`swift-test-writer`) é a execução — *o que/onde* testar no `social-care`.
+> de XCTest, consulte **`references/`** desta skill — comece por
+> [`references/_index.md`](references/_index.md), que mapeia os 18 documentos por
+> pergunta. Esta skill é a execução — *o que/onde* testar no `social-care`; o
+> `references/` é o *como* do framework.
 
 ## Estrutura
 
@@ -69,11 +71,12 @@ Tests/social-care-sTests/
     Query/GetUnifiedProfileTests.swift
     TestDoubles/
       InMemoryPatientRepository.swift
-      InMemoryEventBus.swift
+      InMemoryPatientAssessmentRepository.swift
       InMemoryLookupValidator.swift
-      InMemoryPersonExistenceValidator.swift
+      InMemoryLookupAdminRepository.swift
+      InMemoryLookupRequestRepository.swift
       PatientFixture.swift
-      CommandFixtures.swift
+      RegressionFixture.swift
   Domain/v2/
     Kernel/CPFTests.swift, NISTests.swift, CEPTests.swift, ...
     Registry/PatientTests.swift, FamilyAggregateTests.swift, ...
@@ -131,21 +134,28 @@ public actor InMemoryPatientRepository: PatientRepository {
 }
 ```
 
+**Não existe `InMemoryEventBus`** — o protocolo `EventBus` foi removido em
+ADR-014. A coleta de eventos vive no próprio fake de repositório, dentro do
+`save`, espelhando o `SQLKitPatientRepository` que escreve em `outbox_messages`
+na mesma transação do agregado:
+
 ```swift
-public actor InMemoryEventBus: EventBus {
-    public private(set) var publishedEvents: [any DomainEvent] = []
+// Tests/.../TestDoubles/InMemoryPatientRepository.swift — trecho
+/// Eventos coletados pelos `save(_:)` sucessivos. Espelha o invariante
+/// do `SQLKitPatientRepository` real (ADR-014): events ficam na save,
+/// não em chamada separada via EventBus.
+private(set) var publishedEvents: [any DomainEvent] = []
 
-    public init() {}
-
-    public func publish(_ events: [any DomainEvent]) async throws {
-        publishedEvents.append(contentsOf: events)
-    }
-
-    public func reset() {
-        publishedEvents.removeAll()
-    }
+func save(_ patient: Patient) async throws {
+    // ... optimistic lock (ADR-005) ...
+    publishedEvents.append(contentsOf: patient.uncommittedEvents)
+    storage[patient.id] = patient
+    saveCallCount += 1
 }
 ```
+
+Um fake que exponha `publish(_:)` separado deixa de detectar o bug que o
+ADR-014 fecha: repositório que esquece de gravar no outbox passaria verde.
 
 ```swift
 public actor InMemoryLookupValidator: LookupValidating {
@@ -286,7 +296,6 @@ struct RegisterPatientCommandHandlerTests {
     struct SUT {
         let handler: RegisterPatientCommandHandler
         let repository: InMemoryPatientRepository
-        let bus: InMemoryEventBus
         let lookup: InMemoryLookupValidator
     }
 
@@ -295,13 +304,13 @@ struct RegisterPatientCommandHandlerTests {
         lookup: InMemoryLookupValidator = .withValidParentesco()
     ) -> SUT {
         let repo = InMemoryPatientRepository(seed: seed)
-        let bus = InMemoryEventBus()
+        // Sem fake de EventBus — o tipo não existe (ADR-014). O repositório
+        // acumula os `uncommittedEvents` em `publishedEvents` dentro do save.
         let handler = RegisterPatientCommandHandler(
             repository: repo,
-            eventBus: bus,
             lookupValidator: lookup
         )
-        return SUT(handler: handler, repository: repo, bus: bus, lookup: lookup)
+        return SUT(handler: handler, repository: repo, lookup: lookup)
     }
 
     @Test("Happy path — saves and publishes PatientRegistered")
@@ -314,7 +323,7 @@ struct RegisterPatientCommandHandlerTests {
         #expect(!id.isEmpty)
         let personId = try PersonId(command.personId)
         #expect(try await sut.repository.exists(byPersonId: personId))
-        let events = await sut.bus.publishedEvents
+        let events = await sut.repository.publishedEvents
         #expect(events.count == 1)
         #expect(events.first is PatientRegistered)
     }
@@ -327,7 +336,7 @@ struct RegisterPatientCommandHandlerTests {
         await #expect(throws: AppError.self) {
             _ = try await sut.handler.handle(command)
         }
-        let events = await sut.bus.publishedEvents
+        let events = await sut.repository.publishedEvents
         #expect(events.isEmpty)  // não publicou nada porque falhou antes
     }
 

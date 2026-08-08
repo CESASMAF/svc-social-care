@@ -52,11 +52,25 @@ extension Patient {
         )
         self.familyMembers = familyMembers
 
+        // Quase-identificadores generalizados AQUI, onde a PII existe. O que sai
+        // no evento é faixa etária e mesorregião — nunca birthDate nem CEP.
+        // A referência de idade é `now` (o occurredAt do evento), não a data de
+        // hoje: reprocessar o evento no futuro tem que dar a mesma faixa.
+        let ageBand = personalData.map {
+            DemographicGeneralization.ageBand(birthDate: $0.birthDate.date, reference: now.date)
+        } ?? nil
+        let mesoregion = address?.cep.flatMap {
+            DemographicGeneralization.mesoregion(cep: $0.value)
+        }
+
         self.recordEvent(PatientCreatedEvent(
             patientId: id.description,
             personId: personId.description,
             actorId: actorId,
-            occurredAt: now.date
+            occurredAt: now.date,
+            ageBand: ageBand,
+            sex: personalData?.sex.rawValue,
+            mesoregion: mesoregion
         ))
     }
 

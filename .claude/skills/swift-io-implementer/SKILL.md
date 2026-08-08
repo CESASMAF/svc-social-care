@@ -383,8 +383,9 @@ public struct AppErrorMiddleware: AsyncMiddleware {
 
 ## Template de PeopleContextClient (Bearer Forwarding)
 
-> **Referência:** ADR-023 do handbook do frontend
-> (`frontend/handbook/architecture/DECISIONS/ADR-023-bff-adapter-bearer-forwarding.md`).
+> **Referência:** [ADR-011](../../../handbook/architecture/DECISIONS/ADR-011-people-context-fail-secure-and-bearer-forwarding.md)
+> (fail-secure + bearer forwarding). O "ADR-023 do handbook do frontend" citado
+> aqui antes **não existe** — ver a nota de colisão de numeração no `CLAUDE.md`.
 > Backend extrai `actorId` do JWT validado — adapter outbound DEVE encaminhar
 > `Authorization: Bearer <jwt>`.
 
@@ -423,14 +424,14 @@ public final class ServiceContainer: @unchecked Sendable {
 
     public init(app: Application) async throws {
         let sql = app.db as! any SQLDatabase
-        let mapper = PatientRowMapper()
-        let patientRepo = SQLKitPatientRepository(db: sql, mapper: mapper)
+        let patientRepo = SQLKitPatientRepository(db: sql)
         let lookupRepo = SQLKitLookupRepository(db: sql)
-        let outbox = OutboxEventBus(db: sql)
 
+        // Sem EventBus no composition root: o tipo foi REMOVIDO em ADR-014
+        // (ver shared/Domain/DomainProtocols.swift). O outbox é escrito dentro
+        // de SQLKitPatientRepository.save, na transação do agregado.
         self.registerPatientHandler = RegisterPatientCommandHandler(
             repository: patientRepo,
-            eventBus: outbox,
             lookupValidator: lookupRepo
         )
         self.getUnifiedProfileHandler = GetUnifiedPatientProfileHandler(

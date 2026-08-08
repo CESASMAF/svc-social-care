@@ -83,11 +83,19 @@ struct MetadataValidator: Sendable {
 
     struct ViolationTypeMetadata: Codable, Sendable {
         let id: UUID
+        // `codigo` (pt-BR) e a chave que traduz o item do catalogo para a categoria de dominio.
+        let codigo: String
         let exige_descricao: Bool
     }
 
-    func validateViolationType(typeId: String?, descriptionOfFact: String) async throws {
-        guard let typeId, let uuid = UUID(uuidString: typeId) else { return }
+    /// Valida o item do catalogo e DEVOLVE a categoria de dominio correspondente.
+    ///
+    /// Devolver o tipo aqui (em vez de so validar) faz do catalogo a fonte: o cliente escolhe um item
+    /// — que e o que a tela oferece — e o dominio deriva a categoria. Antes, o cliente mandava os dois
+    /// e eles podiam divergir; como os vocabularios nunca casaram, na pratica NENHUM tipo escolhido na
+    /// tela era aceito. `nil` = nao ha `violationTypeId` (contrato legado: usa o `violationType` cru).
+    func validateViolationType(typeId: String?, descriptionOfFact: String) async throws -> RightsViolationReport.ViolationType? {
+        guard let typeId, let uuid = UUID(uuidString: typeId) else { return nil }
 
         guard let meta = try await fetchViolationMetadata(uuid) else {
             throw Abort(.unprocessableEntity,
@@ -98,11 +106,18 @@ struct MetadataValidator: Sendable {
             throw Abort(.unprocessableEntity,
                         reason: "Violation type requires 'descriptionOfFact' (descricao detalhada obrigatoria para este tipo).")
         }
+
+        guard let mapped = RightsViolationReport.ViolationType.fromCatalogCode(meta.codigo) else {
+            throw Abort(.unprocessableEntity,
+                        reason: "Violation type code '\(meta.codigo)' has no domain category. Add it to ViolationType.fromCatalogCode.")
+        }
+        return mapped
     }
 
     private func fetchViolationMetadata(_ id: UUID) async throws -> ViolationTypeMetadata? {
         try await db.select()
             .column("id")
+            .column("codigo")
             .column("exige_descricao")
             .from("dominio_tipo_violacao")
             .where("id", .equal, id)
