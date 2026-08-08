@@ -26,6 +26,16 @@ extension Patient {
             if hasPR { throw PatientError.multiplePrimaryReferencesNotAllowed }
         }
 
+        // "Principal" so faz sentido se for UM: `assignPrimaryCaregiver` revoga os demais, mas quem
+        // entrava JA marcado como cuidador escapava dessa regra — bastava marcar "e cuidador(a)" ao
+        // adicionar e o paciente ficava com dois cuidadores principais ao mesmo tempo. A invariante
+        // vale agora em todo caminho de escrita, nao so no que passa pela rota dedicada.
+        if member.isPrimaryCaregiver {
+            for index in familyMembers.indices {
+                familyMembers[index].revokePrimaryCaregiver()
+            }
+        }
+
         self.familyMembers.append(member)
 
         self.recordEvent(FamilyMemberAddedEvent(
