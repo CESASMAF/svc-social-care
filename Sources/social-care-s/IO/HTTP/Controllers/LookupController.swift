@@ -52,9 +52,14 @@ struct LookupController: RouteCollection {
             .orderBy("codigo")
             .all()
 
+        // `LookupId` normaliza todo id de dominio para MINUSCULO (ver LookupId.init) — essa e a forma
+        // canonica com que os ids saem dentro dos agregados de paciente. `UUID.uuidString` devolve
+        // MAIUSCULO, entao o catalogo saia num formato e o valor salvo em outro: no <select> do front
+        // nenhum <option value> casava com o valor gravado e o campo caia na primeira opcao, mostrando
+        // ao profissional um dado que nao era o registrado. Sai pelo mesmo value object do dominio.
         let items = try rows.map { row in
             LookupItemResponse(
-                id: try row.decode(column: "id", as: UUID.self).uuidString,
+                id: try LookupId(row.decode(column: "id", as: UUID.self).uuidString).description,
                 codigo: try row.decode(column: "codigo", as: String.self),
                 descricao: try row.decode(column: "descricao", as: String.self)
             )
